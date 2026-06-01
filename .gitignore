@@ -151,6 +151,8 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv-stability
+vendor/generative-models/
 env/
 venv/
 ENV/
@@ -216,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# LaTeX build output (per-document under reports/out/<name>/)
+reports/out/
