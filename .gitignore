@@ -220,4 +220,6 @@ __marimo__/
 .streamlit/secrets.toml
 
 # LaTeX build output (per-document under reports/out/<name>/)
-reports/out/
+reports/
+uv.lock
+.vscode/
