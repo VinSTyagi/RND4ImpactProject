@@ -129,15 +129,14 @@ class TitleConfig:
 class SceneConfig:
     num_scenes: int = 8
     prompt_path: str = "script_setup/prompts/stage_3.md"
-    title_path: str = "script_setup/output/stage_2.jsonl"
-    output_path: str = "script_setup/output/stage_3.jsonl"
+    script_path: str = "script_setup/output/script/"
 
 
 @dataclass
 class ImageConfig:
     prompt_path: str = "script_setup/prompts/stage_4.md"
-    scene_path: str = "script_setup/output/stage_3.jsonl"
-    output_path: str = "script_setup/output/stage_4.jsonl"
+    scene_path: str = "script_setup/output/script/"
+    output_path: str = "script_setup/output/images/"
 
 
 @dataclass

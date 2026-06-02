@@ -17,15 +17,14 @@ idea_config:
 title_config:
   prompt_path: script_setup/prompts/stage_2.md
   idea_path: script_setup/output/stage_1.jsonl
-  output_path: script_setup/output/stage_2.jsonl
+  output_path: script_setup/output/images
 
 scene_config:
   num_scenes: 8
   prompt_path: script_setup/prompts/stage_3.md
-  title_path: script_setup/output/stage_2.jsonl
-  output_path: script_setup/output/stage_3.jsonl
+  script_path: script_setup/output/script/
 
 image_config:
   prompt_path: script_setup/prompts/stage_4.md
-  scene_path: script_setup/output/stage_3.jsonl
-  output_path: script_setup/output/stage_4.jsonl
+  scene_path: script_setup/output/script/
+  output_path: script_setup/output/images/
