@@ -35,6 +35,7 @@ class Idea:
     hook: str
     tone: str
     theme: str
+    model: str = ""
     idea_id: UUID = field(default_factory=uuid4)
 
     @classmethod
@@ -49,6 +50,8 @@ class Idea:
         if missing:
             raise ValueError(f"missing or empty fields: {', '.join(missing)}")
         fields = {name: str(data[name]).strip() for name in _IDEA_FIELDS}
+        if "model" in data and str(data["model"]).strip():
+            fields["model"] = str(data["model"]).strip()
         idea_id = data.get("idea_id")
         if idea_id:
             fields["idea_id"] = UUID(str(idea_id))
@@ -56,6 +59,8 @@ class Idea:
 
     def to_json(self) -> dict[str, Any]:
         return {
+            "model": self.model, 
+            "idea_id": str(self.idea_id),
             "genre": self.genre,
             "setting": self.setting,
             "premise": self.premise,
@@ -64,13 +69,13 @@ class Idea:
             "hook": self.hook,
             "tone": self.tone,
             "theme": self.theme,
-            "idea_id": str(self.idea_id),
         }
 
 
 @dataclass
 class Script:
     raw_idea: Idea
+    model: str
     script_id: UUID = field(init=False)
     raw_title: str | None = None
     script_scenes: list[str] | None = None
@@ -101,14 +106,15 @@ class Script:
 
 @dataclass
 class VLLMModelConfig:
-    model_path: str = "meta-llama/Llama-3.1-8B-Instruct"
-    max_tokens: int = 12800
+    model_path: str = "Qwen/Qwen3-4B-AWQ"
+    quantization: str = "awq"
+    max_tokens: int = 1536
     temperature: float = 0.25
-    max_model_len: int = 32768
+    max_model_len: int = 2048
     tensor_parallel_size: int = 1
-    gpu_memory_utilization: float = 0.9
-    enforce_eager: bool = False
-    batch_size: int = 4
+    gpu_memory_utilization: float = 0.80
+    enforce_eager: bool = True
+    batch_size: int = 1
 
 
 @dataclass

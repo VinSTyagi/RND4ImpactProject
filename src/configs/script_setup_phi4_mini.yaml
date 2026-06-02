@@ -1,13 +1,14 @@
+# ~6GB VRAM: ~2.9GB weights + ~0.3GB KV @ 2048 ctx; same limits as Qwen3-4B AWQ.
 vllm_model_config:
-  model_path: meta-llama/Llama-3.1-8B-Instruct
+  model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
   quantization: awq
-  max_tokens: 12800
+  max_tokens: 1536
   temperature: 0.25
-  max_model_len: 32768
+  max_model_len: 2048
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.9
-  enforce_eager: false
-  batch_size: 4
+  gpu_memory_utilization: 0.80
+  enforce_eager: true
+  batch_size: 1
 
 idea_config:
   num_ideas: 10

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import logging
-
-from prompts.prompt_reader import load_prompt_md
-from utils.schema import Idea, IdeaConfig, parse_ideas_from_text
 import datetime
 import json
+import logging
 import re
+
+from prompts.prompt_reader import load_prompt_md
+from utils.schema import Idea, IdeaConfig
 
 
 def run_stage(
@@ -15,16 +15,25 @@ def run_stage(
     sampling_params,
     tokenizer,
     config: IdeaConfig,
-):
+) -> list[Idea]:
     logger.info("Beginning stage 1 (idea generation)")
-    logger.info("Running vLLM generate for %s ideas", num_ideas)
-    time = datetime.now()
-    outputs = generate_ideas()
+    logger.info("Running vLLM generate for %s ideas", config.num_ideas)
+    start = datetime.datetime.now()
+    ideas = generate_ideas(
+        logger, model, config, sampling_params, tokenizer
+    )
+    elapsed = datetime.datetime.now() - start
+    logger.info("Generate ideas -- Time taken: %s", elapsed)
+    return ideas
 
-    logger.info(f"Generate ideas -- Time taken: {time - datetime.now()}")
 
-
-def generate_ideas(logger, model, config, sampling_params, tokenizer):
+def generate_ideas(
+    logger: logging.Logger,
+    model,
+    config: IdeaConfig,
+    sampling_params,
+    tokenizer,
+) -> list[Idea]:
     num_ideas = config.num_ideas
     sys_prompt = load_prompt_md(config.prompt_path)
     if not sys_prompt:
@@ -41,8 +50,16 @@ def generate_ideas(logger, model, config, sampling_params, tokenizer):
         tokenize=False,
         add_generation_prompt=True,
     )
+    logger.info("Submitting prompt to vLLM (%s chars)", len(formatted_prompt))
     raw_outputs = model.generate([formatted_prompt], sampling_params)
-    return clean_ideas(raw_outputs)
+    ideas = clean_ideas(raw_outputs)
+    for idea in ideas:
+        idea.model = getattr(config, "model_path", "")
+    if len(ideas) != num_ideas:
+        logger.warning(
+            "Expected %s ideas but parsed %s", num_ideas, len(ideas)
+        )
+    return ideas
 
 
 def _completion_text(raw_outputs) -> str:
