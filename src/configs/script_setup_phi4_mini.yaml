@@ -13,19 +13,24 @@ vllm_model_config:
 idea_config:
   num_ideas: 10
   prompt_path: script_setup/prompts/stage_1.md
-  output_path: script_setup/output/stage_1.jsonl
+  output_path: data/stage_1.jsonl
 
 title_config:
   prompt_path: script_setup/prompts/stage_2.md
-  idea_path: script_setup/output/stage_1.jsonl
-  output_path: script_setup/output/script/
+  idea_path: data/stage_1.jsonl
+  output_path: data/script/
 
 scene_config:
   num_scenes: 8
   prompt_path: script_setup/prompts/stage_3.md
-  script_path: script_setup/output/script/
+  script_path: data/script/
 
 image_config:
   prompt_path: script_setup/prompts/stage_4.md
-  scene_path: script_setup/output/script/
-  output_path: script_setup/output/images/
+  scene_path: data/script/
+  output_path: data/images/
+
+video_config:
+  scene_path: data/script/
+  image_path: data/images/
+  output_path: data/videos/

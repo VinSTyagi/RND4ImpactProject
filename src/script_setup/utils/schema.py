@@ -11,7 +11,21 @@ import re
 
 import yaml
 import json
-import os
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_SRC_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_path(rel: str) -> Path:
+    """Resolve config paths: ``data/...`` from repo root, else from ``src/``."""
+    path = Path(rel)
+    if path.is_absolute():
+        return path
+    normalized = rel.replace("\\", "/")
+    if normalized.startswith("data/"):
+        return _REPO_ROOT / path
+    return _SRC_ROOT / path
+
 
 _IDEA_FIELDS = (
     "genre",
@@ -96,10 +110,10 @@ class Script:
     def save(self, script_folder: str) -> None:
         out = self.to_json()
         try:
-            out_dir = os.path.join(script_folder, self.script_id)
-            os.makedirs(out_dir, exist_ok=True)
-            with open(out_dir, "w") as f:
-                f.write(json.dump(out))
+            out_dir = resolve_path(script_folder) / str(self.script_id)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            with (out_dir / "script.json").open("w", encoding="utf-8") as f:
+                json.dump(out, f, indent=2)
         except Exception:
             raise
 
@@ -121,28 +135,35 @@ class VLLMModelConfig:
 class IdeaConfig:
     num_ideas: int = 5
     prompt_path: str = "script_setup/prompts/stage_1.md"
-    output_path: str = "script_setup/output/stage_1.jsonl"
+    output_path: str = "data/stage_1.jsonl"
 
 
 @dataclass
 class TitleConfig:
     prompt_path: str = "script_setup/prompts/stage_2.md"
-    idea_path: str = "script_setup/output/stage_1.jsonl"
-    output_path: str = "script_setup/output/script/stage_2.jsonl"
+    idea_path: str = "data/stage_1.jsonl"
+    output_path: str = "data/script/"
 
 
 @dataclass
 class SceneConfig:
     num_scenes: int = 8
     prompt_path: str = "script_setup/prompts/stage_3.md"
-    script_path: str = "script_setup/output/script/"
+    script_path: str = "data/script/"
 
 
 @dataclass
 class ImageConfig:
     prompt_path: str = "script_setup/prompts/stage_4.md"
-    scene_path: str = "script_setup/output/script/"
-    output_path: str = "script_setup/output/images/"
+    scene_path: str = "data/script/"
+    output_path: str = "data/images/"
+
+
+@dataclass
+class VideoConfig:
+    scene_path: str = "data/script/"
+    image_path: str = "data/images/"
+    output_path: str = "data/videos/"
 
 
 @dataclass
@@ -152,6 +173,7 @@ class PipelineConfig:
     title_config: TitleConfig = field(default_factory=TitleConfig)
     scene_config: SceneConfig = field(default_factory=SceneConfig)
     image_config: ImageConfig = field(default_factory=ImageConfig)
+    video_config: VideoConfig = field(default_factory=VideoConfig)
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
@@ -218,4 +240,5 @@ def load_config(path: str) -> PipelineConfig:
         title_config=TitleConfig(**_section(data, "title_config")),
         scene_config=SceneConfig(**_section(data, "scene_config")),
         image_config=ImageConfig(**_section(data, "image_config")),
+        video_config=VideoConfig(**_section(data, "video_config")),
     )

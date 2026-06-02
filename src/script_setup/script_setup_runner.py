@@ -7,17 +7,17 @@ import os
 from pathlib import Path
 
 from utils import stage_1, vllm_wrapper
-from utils.schema import Idea, PipelineConfig, load_config
+from utils.schema import Idea, PipelineConfig, load_config, resolve_path
 
 _SRC_DIR = Path(__file__).resolve().parents[1]
-_DEFAULT_CONFIG = Path("configs/script_setup_qwen3_4b.yaml")
+_DEFAULT_CONFIG = Path("configs/script_setup_qwen3_4B.yaml")
 
 logger = logging.getLogger(__name__)
 
 
 def write_ideas_jsonl(ideas: list[Idea], output_path: str) -> Path:
     """Write one JSON object per line using Idea.to_json()."""
-    path = Path(output_path)
+    path = resolve_path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for idea in ideas:
@@ -49,7 +49,6 @@ def run_stage_1(pipeline_config: PipelineConfig) -> list[Idea]:
     ideas = stage_1.run_stage(
         logger,
         model,
-        vcfg.model_path,
         sampling_params,
         tokenizer,
         idea_cfg,

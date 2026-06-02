@@ -219,7 +219,14 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Script setup pipeline artifacts
+data/stage_*.jsonl
+data/script/
+data/images/
+data/videos/
+
 # LaTeX build output (per-document under reports/out/<name>/)
 reports/
 uv.lock
 .vscode/
+docs/

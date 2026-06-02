@@ -6,7 +6,7 @@ import logging
 import re
 
 from prompts.prompt_reader import load_prompt_md
-from utils.schema import Idea, IdeaConfig
+from utils.schema import Idea, IdeaConfig, resolve_path
 
 
 def run_stage(
@@ -35,9 +35,10 @@ def generate_ideas(
     tokenizer,
 ) -> list[Idea]:
     num_ideas = config.num_ideas
-    sys_prompt = load_prompt_md(config.prompt_path)
+    prompt_path = resolve_path(config.prompt_path)
+    sys_prompt = load_prompt_md(str(prompt_path))
     if not sys_prompt:
-        raise FileNotFoundError(f"Prompt file not found or empty: {config.prompt_path}")
+        raise FileNotFoundError(f"Prompt file not found or empty: {prompt_path}")
 
     user_prompt = f"Generate {num_ideas} story ideas."
     messages = [
