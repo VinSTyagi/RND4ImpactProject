@@ -45,6 +45,7 @@ dependencies = [
     "tqdm>=4.66",
     "numpy>=1.26,<3",
     "vllm>=0.7.3",
+    "ruff>=0.15.15",
 ]
 
 [project.optional-dependencies]

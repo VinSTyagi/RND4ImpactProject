@@ -1,0 +1,30 @@
+vllm_model_config:
+  model_path: meta-llama/Llama-3.1-3.8B-Instruct
+  max_tokens: 12800
+  temperature: 0.25
+  max_model_len: 32768
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.9
+  enforce_eager: false
+  batch_size: 4
+
+idea_config:
+  num_ideas: 10
+  prompt_path: script_setup/prompts/stage_1.md
+  output_path: script_setup/output/stage_1.jsonl
+
+title_config:
+  prompt_path: script_setup/prompts/stage_2.md
+  idea_path: script_setup/output/stage_1.jsonl
+  output_path: script_setup/output/stage_2.jsonl
+
+scene_config:
+  num_scenes: 8
+  prompt_path: script_setup/prompts/stage_3.md
+  title_path: script_setup/output/stage_2.jsonl
+  output_path: script_setup/output/stage_3.jsonl
+
+image_config:
+  prompt_path: script_setup/prompts/stage_4.md
+  scene_path: script_setup/output/stage_3.jsonl
+  output_path: script_setup/output/stage_4.jsonl
