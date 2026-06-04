@@ -1,83 +1,167 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
+import json
 import os
+import sys
 from pathlib import Path
+from typing import Callable
 
-from utils import stage_1, vllm_wrapper
-from utils.schema import Idea, PipelineConfig, load_config, resolve_path
+from utils import stage_1, stage_2, vllm_wrapper
+from utils.schema import (
+    PipelineConfig,
+    Script,
+    load_config,
+)
 
 _SRC_DIR = Path(__file__).resolve().parents[1]
-_DEFAULT_CONFIG = Path("configs/script_setup_qwen3_4B.yaml")
-
-logger = logging.getLogger(__name__)
-
-
-def write_ideas_jsonl(ideas: list[Idea], output_path: str) -> Path:
-    """Write one JSON object per line using Idea.to_json()."""
-    path = resolve_path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        for idea in ideas:
-            handle.write(json.dumps(idea.to_json()) + "\n")
-    logger.info("Wrote %s ideas to %s", len(ideas), path)
-    return path
+_DEFAULT_CONFIG = Path("configs/script_setup_qwen3_4b.yaml")
+_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
 
-def run_stage_1(pipeline_config: PipelineConfig) -> list[Idea]:
-    vcfg = pipeline_config.vllm_model_config
+def configure_logging(level: int = logging.INFO) -> logging.Logger:
+    """Ensure script_setup logs always reach stderr (vLLM may configure root first)."""
+    log = logging.getLogger("script_setup.runner")
+    log.setLevel(level)
+    if not any(isinstance(h, logging.StreamHandler) for h in log.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+        log.addHandler(handler)
+    log.propagate = False
+    return log
+
+
+logger = configure_logging()
+
+
+def run_stage_1(pipeline_config: PipelineConfig, state: dict) -> dict:
+    vcfg = pipeline_config.stage_1_vllm_config
     idea_cfg = pipeline_config.idea_config
-
-    model = vllm_wrapper.load_vllm_engine(
-        dtype="auto",
-        max_model_len=vcfg.max_model_len,
-        model=vcfg.model_path,
-        batch_size=vcfg.batch_size,
-        gpu_memory_utilization=vcfg.gpu_memory_utilization,
-        enforce_eager=vcfg.enforce_eager,
-        tensor_parallel_size=vcfg.tensor_parallel_size,
-        quantization=vcfg.quantization,
+    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
+        tokenizer = model.get_tokenizer()
+        scripts = stage_1.run_stage(
+            logger,
+            model,
+            sampling_params,
+            tokenizer,
+            idea_cfg,
+            enable_thinking=vcfg.enable_thinking,
+        )
+    for script in scripts:
+        script.save(idea_cfg.output_path)
+    logger.info(
+        "Saved %s scripts to %s", len(scripts), idea_cfg.output_path
     )
-    tokenizer = model.get_tokenizer()
-    sampling_params = vllm_wrapper.sample_params(
-        temperature=vcfg.temperature,
-        max_tokens=vcfg.max_tokens,
+    state["scripts"] = scripts
+    return state
+
+
+def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
+    vcfg = pipeline_config.stage_2_vllm_config
+    title_cfg = pipeline_config.title_config
+    scripts = state.get("scripts")
+    if scripts is None:
+        scripts = Script.read_all(title_cfg.script_path)
+        logger.info(
+            "Loaded %s scripts from %s", len(scripts), title_cfg.script_path
+        )
+    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
+        tokenizer = model.get_tokenizer()
+        scripts = stage_2.run_stage(
+            logger,
+            model,
+            sampling_params,
+            tokenizer,
+            scripts,
+            title_cfg,
+            batch_size=vcfg.batch_size,
+            enable_thinking=vcfg.enable_thinking,
+        )
+    for script in scripts:
+        script.save(title_cfg.output_path)
+    logger.info("Saved %s scripts to %s", len(scripts), title_cfg.output_path)
+    state["scripts"] = scripts
+    return state
+
+
+StageRunner = Callable[[PipelineConfig, dict], dict]
+
+STAGES: dict[int, StageRunner] = {
+    1: run_stage_1,
+    2: run_stage_2,
+    # 3: run_stage_3,
+    # 4: run_stage_4,
+}
+
+
+def resolve_stages(
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> list[int]:
+    """Map CLI flags to an ordered list of stage numbers to run."""
+    if args.all:
+        return sorted(STAGES)
+    selected = [n for n in STAGES if getattr(args, f"stage_{n}")]
+    if not selected:
+        flags = ", ".join(f"--{n}" for n in sorted(STAGES))
+        parser.error(f"Specify at least one stage: {flags}, or --all")
+    return sorted(selected)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run one or more script_setup pipeline stages.",
     )
-
-    ideas = stage_1.run_stage(
-        logger,
-        model,
-        sampling_params,
-        tokenizer,
-        idea_cfg,
-    )
-    write_ideas_jsonl(ideas, idea_cfg.output_path)
-    return ideas
-
-
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
-    os.chdir(_SRC_DIR)
-
-    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config",
         type=Path,
         default=_DEFAULT_CONFIG,
         help="Path to script_setup YAML config",
     )
+    for n in sorted(STAGES):
+        parser.add_argument(
+            f"--{n}",
+            dest=f"stage_{n}",
+            action="store_true",
+            help=f"Run stage {n}",
+        )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run all implemented stages (overrides individual --N flags)",
+    )
+    return parser
+
+
+def main() -> None:
+    global logger
+    logger = configure_logging()
+    logging.basicConfig(
+        level=logging.INFO,
+        format=_LOG_FORMAT,
+        force=True,
+    )
+    os.chdir(_SRC_DIR)
+
+    parser = build_parser()
     args = parser.parse_args()
 
     pipeline_config = load_config(str(args.config))
     logger.info("Loaded config from %s", args.config)
-    ideas = run_stage_1(pipeline_config)
-    for idea in ideas:
-        print(idea.to_json())
+
+    stages = resolve_stages(args, parser)
+    logger.info("Running stages: %s", ", ".join(str(n) for n in stages))
+
+    state: dict = {}
+    for n in stages:
+        logger.info("=== Stage %s ===", n)
+        STAGES[n](pipeline_config, state)
+
+    scripts = state.get("scripts")
+    if scripts:
+        for script in scripts:
+            print(json.dumps(script.to_json()))
 
 
 if __name__ == "__main__":

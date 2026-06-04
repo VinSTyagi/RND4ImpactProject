@@ -89,11 +89,11 @@ starts, and stages always run in ascending order.
 ```bash
 cd docker
 
-# Stage 1 only: idea generation -> data/<idea_id>/script.json
+# Stage 1 only: idea generation -> data/<script_id>/script.json
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --1
 
-# Stage 2 only: titles from existing data/<idea_id>/script.json
+# Stage 2 only: titles from existing data/<script_id>/script.json
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --2
 
@@ -106,7 +106,7 @@ docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --all
 ```
 
-Stage 1 and stage 2 both read and write `data/<idea_id>/script.json` (stage 1 creates scripts with ideas only; stage 2 adds titles). Images and other artifacts live in the same `<idea_id>` folder.
+Stage 1 and stage 2 both read and write `data/<script_id>/script.json` (stage 1 creates scripts with ideas only; stage 2 adds titles). Images and other artifacts live in the same `<script_id>` folder.
 Both are on the host via the bind mount. Running `docker compose run --rm
 script-setup` with no command override executes `--all`.
 
