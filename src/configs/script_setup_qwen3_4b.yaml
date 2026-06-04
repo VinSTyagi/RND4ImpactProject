@@ -1,7 +1,7 @@
-# ~6GB VRAM: ~2.9GB weights + ~1.2GB KV @ 8192 ctx (~0.7GB headroom).
+# ~6GB VRAM: ~2.7GB weights + ~1.1GB KV @ 8192 ctx (~1.0GB headroom). Thinking needs extra ctx room.
 # Stage 1 (idea generation): one long completion, no batching, full context budget.
 stage_1_vllm_config:
-  model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
+  model_path: Qwen/Qwen3-4B-AWQ
   quantization: awq_marlin
   max_tokens: 8192
   temperature: 0.25
@@ -9,17 +9,17 @@ stage_1_vllm_config:
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.80
   enforce_eager: true
-  enable_thinking: false
+  enable_thinking: true
   batch_size: 1
   max_num_batched_tokens: 8192
 
 # Stage 2 (title generation): short outputs, batched across ideas, smaller batched-token budget.
 stage_2_vllm_config:
-  model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
+  model_path: Qwen/Qwen3-4B-AWQ
   quantization: awq_marlin
-  max_tokens: 512
+  max_tokens: 3072
   temperature: 0.25
-  max_model_len: 8192
+  max_model_len: 3072
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.80
   enforce_eager: true

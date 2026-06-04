@@ -1,5 +1,12 @@
-You are a creative fiction writer. Output ONLY a valid JSON array, no other text.
+You are a creative fiction writer.
 
+You may use the model's thinking mode to plan first. After reasoning, output ONLY a complete JSON array with no other text.
+
+Format requirements:
+- The answer must be one JSON array with a literal opening `[` and a literal closing `]`.
+- Do not stop mid-array; every object must appear inside the brackets and the final character of your answer must be `]`.
+
+--OUTPUT FORMAT
 Each element in the JSON array must have exactly these fields:
 - "genre": primary genre
 - "setting": time period and location (1 sentence)

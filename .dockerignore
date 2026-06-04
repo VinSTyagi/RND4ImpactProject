@@ -1,0 +1,39 @@
+# Keep the build context small and Linux-clean. The image installs deps fresh
+# (uv sync on Linux) and only needs pyproject.toml + src/ + README/LICENSE.
+
+# Local virtualenvs (Windows-built, multi-GB, wrong platform)
+.venv/
+.venv-stability/
+env/
+venv/
+ENV/
+
+# Windows-resolved lock (re-resolved on Linux in the builder)
+uv.lock
+
+# Vendored / cloned trees
+vendor/
+
+# VCS + IDE + agent tooling
+.git/
+.gitignore
+.vscode/
+.cursor/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Python caches
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Pipeline outputs and large local artifacts (mounted at runtime, not baked in)
+data/stage_*.jsonl
+data/*/
+reports/
+docs/
+*.pdf
+
+# Docker artifacts themselves
+docker/.env

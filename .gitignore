@@ -219,11 +219,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Script setup pipeline artifacts
+# Script setup pipeline artifacts (per-idea folders under data/)
 data/stage_*.jsonl
-data/script/
-data/images/
-data/videos/
+data/*/
 
 # LaTeX build output (per-document under reports/out/<name>/)
 reports/

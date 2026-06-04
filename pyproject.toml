@@ -7,10 +7,10 @@ requires-python = ">=3.10,<3.13"
 license = { text = "Apache-2.0" }
 dependencies = [
     # PyTorch stack (CUDA 12.4 index via [tool.uv.sources])
-    "torch==2.5.1",
-    "torchvision==0.20.1",
-    "torchaudio==2.5.1",
-    "xformers==0.0.28.post3",
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "torchaudio==2.6.0",
+    "xformers==0.0.29.post2",
     # Stable Diffusion / diffusers
     "diffusers>=0.32,<0.40",
     "accelerate>=1.0",
@@ -24,8 +24,8 @@ dependencies = [
     "opencv-python>=4.8",
     "einops>=0.7",
     "kornia>=0.7",
-    # LLM / NLP (HF)
-    "transformers>=4.44,<5",
+    # LLM / NLP (HF); vLLM 0.8.x requires transformers>=4.51.1
+    "transformers>=4.51.1,<5",
     "tokenizers>=0.20",
     "datasets>=2.19",
     "sentencepiece>=0.2",
@@ -44,7 +44,8 @@ dependencies = [
     "ipykernel>=6.29",
     "tqdm>=4.66",
     "numpy>=1.26,<3",
-    "vllm>=0.7.3",
+    # vLLM 0.8.x: native Qwen3, torch 2.6.0 (cu124). vLLM 0.9+ needs torch 2.7 / cu128.
+    "vllm==0.8.5",
     "ruff>=0.15.15",
 ]
 
@@ -73,10 +74,10 @@ xformers = { index = "pytorch-cu124" }
 
 [dependency-groups]
 torch = [
-    "torch==2.5.1",
-    "torchvision==0.20.1",
-    "torchaudio==2.5.1",
-    "xformers==0.0.28.post3",
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "torchaudio==2.6.0",
+    "xformers==0.0.29.post2",
 ]
 
 [tool.pytest.ini_options]
@@ -85,8 +86,8 @@ testpaths = ["tests"]
 
 [tool.uv]
 constraint-dependencies = [
-    "torch==2.5.1",
-    "torchvision==0.20.1",
-    "torchaudio==2.5.1",
-    "xformers==0.0.28.post3",
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "torchaudio==2.6.0",
+    "xformers==0.0.29.post2",
 ]

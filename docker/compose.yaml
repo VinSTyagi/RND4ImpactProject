@@ -1,0 +1,89 @@
+name: rnd4impact
+
+# Shared GPU reservation. CUDA_VISIBLE_DEVICES (set via the environment block
+# below, only when provided) narrows which GPUs the container actually uses.
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+# Common settings for every service. Paths are relative to this file (docker/),
+# so ../data and ../ (build context) resolve to the repo root.
+x-common: &common
+  <<: *gpu
+  image: rnd4impact:cuda124
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  # vLLM uses shared memory for its worker/KV machinery. On Docker Desktop a
+  # large shm replaces host IPC; on native Linux `ipc: host` is also honored.
+  shm_size: "16gb"
+  ipc: host
+  environment:
+    HF_HOME: /root/.cache/huggingface
+    HF_TOKEN: ${HF_TOKEN:-}
+    HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    # vLLM 0.8 defaults to the V1 engine, which can fail torch.compile profiling on
+    # Docker Desktop / small GPUs. The V0 engine is stable for offline script_setup.
+    VLLM_USE_V1: ${VLLM_USE_V1:-0}
+    # Flip to "1" (or set in docker/.env) for fully offline runs after prefetch.
+    HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+  volumes:
+    - ../data:/workspace/data
+    - hf_cache:/root/.cache/huggingface
+
+services:
+  # Runs the full pipeline (--all). Select stages by overriding the command, e.g.
+  # `docker compose run --rm script-setup \
+  #   python script_setup/script_setup_runner.py --config configs/script_setup_phi4_mini.yaml --1 --2`.
+  script-setup:
+    <<: *common
+    command:
+      - python
+      - script_setup/script_setup_runner.py
+      - --config
+      - configs/script_setup_qwen3_4b.yaml
+      - --all
+
+  # Optional: warm the shared HF cache so later runs only pay weight-load cost.
+  # `docker compose run --rm prefetch-model`
+  prefetch-model:
+    <<: *common
+    profiles: ["tools"]
+    command:
+      - huggingface-cli
+      - download
+      - ${MODEL:-Qwen/Qwen3-4B-AWQ}
+
+  # Interactive debugging shell (GPU attached).
+  # `docker compose run --rm shell`
+  shell:
+    <<: *common
+    profiles: ["tools"]
+    stdin_open: true
+    tty: true
+    command: ["bash"]
+
+  # Optional JupyterLab on http://localhost:8888 (no token, local use only).
+  # `docker compose up jupyter`
+  jupyter:
+    <<: *common
+    profiles: ["jupyter"]
+    ports:
+      - "8888:8888"
+    command:
+      - jupyter
+      - lab
+      - --ip=0.0.0.0
+      - --port=8888
+      - --no-browser
+      - --allow-root
+      - --ServerApp.token=
+
+volumes:
+  hf_cache:

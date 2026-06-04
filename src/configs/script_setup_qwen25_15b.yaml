@@ -1,36 +1,54 @@
-# ~6GB VRAM: ~1GB weights; extra headroom allows 4096 ctx KV (~0.25GB) comfortably.
-vllm_model_config:
+# ~6GB VRAM: ~1GB weights + ~0.9GB KV @ 32768 ctx; only 2 KV heads makes cache tiny. Gen limit: 8K.
+# Stage 1 (idea generation): one long completion, no batching, full context budget.
+stage_1_vllm_config:
   model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
-  quantization: awq
-  max_tokens: 1536
+  quantization: awq_marlin
+  max_tokens: 8192
   temperature: 0.25
-  max_model_len: 4096
+  max_model_len: 32768
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.80
   enforce_eager: true
+  enable_thinking: true
   batch_size: 1
+  max_num_batched_tokens: 8192
+
+# Stage 2 (title generation): short outputs, batched across ideas, smaller batched-token budget.
+stage_2_vllm_config:
+  model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+  quantization: awq_marlin
+  max_tokens: 512
+  temperature: 0.25
+  max_model_len: 32768
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.80
+  enforce_eager: true
+  enable_thinking: false
+  batch_size: 4
+  max_num_batched_tokens: 3072
 
 idea_config:
   num_ideas: 10
   prompt_path: script_setup/prompts/stage_1.md
-  output_path: data/stage_1.jsonl
+  output_path: data/
 
 title_config:
+  num_words: 7
   prompt_path: script_setup/prompts/stage_2.md
-  idea_path: data/stage_1.jsonl
-  output_path: data/script/
+  script_path: data/
+  output_path: data/
 
 scene_config:
-  num_scenes: 8
+  num_scenes: 5
   prompt_path: script_setup/prompts/stage_3.md
-  script_path: data/script/
+  script_path: data/
 
 image_config:
   prompt_path: script_setup/prompts/stage_4.md
-  scene_path: data/script/
-  output_path: data/images/
+  scene_path: data/
+  output_path: data/
 
 video_config:
-  scene_path: data/script/
-  image_path: data/images/
-  output_path: data/videos/
+  scene_path: data/
+  image_path: data/
+  output_path: data/
