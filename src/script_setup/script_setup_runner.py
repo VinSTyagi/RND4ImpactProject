@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from utils import stage_1, stage_2, stage_3, vllm_wrapper
+from utils import stage_1, stage_2, stage_3, stage_4, vllm_wrapper
 from utils.schema import (
     PipelineConfig,
     Script,
@@ -104,6 +104,30 @@ def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
     state["scripts"] = scripts
     return state
 
+def run_stage_4(pipeline_config: PipelineConfig, state: dict) -> dict:
+    vcfg = pipeline_config.stage_4_vllm_config
+    img_prompt_cfg = pipeline_config.image_config
+    scripts = state.get("scripts")
+    if scripts is None:
+        scripts = Script.read_all(img_prompt_cfg.script_path)
+        logger.info("Loaded %s scripts from %s", len(scripts), img_prompt_cfg.script_path)
+    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
+        tokenizer = model.get_tokenizer()
+        scripts = stage_4.run_stage(
+            logger,
+            model,
+            sampling_params,
+            tokenizer,
+            scripts,
+            img_prompt_cfg,
+            enable_thinking=vcfg.enable_thinking,
+        )
+    for script in scripts:
+        script.save(img_prompt_cfg.script_path)
+    logger.info("Saved %s scripts to %s", len(scripts), img_prompt_cfg.script_path)
+    state["scripts"] = scripts
+    return state
+
 
 StageRunner = Callable[[PipelineConfig, dict], dict]
 
@@ -111,7 +135,7 @@ STAGES: dict[int, StageRunner] = {
     1: run_stage_1,
     2: run_stage_2,
     3: run_stage_3,
-    # 4: run_stage_4,
+    4: run_stage_4,
 }
 
 

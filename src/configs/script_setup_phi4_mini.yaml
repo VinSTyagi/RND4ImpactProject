@@ -40,6 +40,20 @@ stage_3_vllm_config:
   max_num_seqs: 3
   max_num_batched_tokens: 3172
 
+# Stage 4 (SDXL image prompt generation): one prompt per scene, batched per script.
+stage_4_vllm_config:
+  model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
+  quantization: awq_marlin
+  max_tokens: 2048
+  temperature: 0.25
+  max_model_len: 4096
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  enforce_eager: false
+  enable_thinking: false
+  max_num_seqs: 8
+  max_num_batched_tokens: 4096
+
 idea_config:
   num_ideas: 1
   prompt_path: script_setup/prompts/stage_1.md

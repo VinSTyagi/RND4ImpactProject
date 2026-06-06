@@ -40,6 +40,20 @@ stage_3_vllm_config:
   max_num_seqs: 2
   max_num_batched_tokens: 4096
 
+# Stage 4 (SDXL image prompt generation): one prompt per scene, batched per script.
+stage_4_vllm_config:
+  model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+  quantization: awq_marlin
+  max_tokens: 2048
+  temperature: 0.25
+  max_model_len: 4096
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  enforce_eager: true
+  enable_thinking: false
+  max_num_seqs: 8
+  max_num_batched_tokens: 4096
+
 idea_config:
   num_ideas: 10
   prompt_path: script_setup/prompts/stage_1.md
