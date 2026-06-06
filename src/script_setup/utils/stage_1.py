@@ -5,8 +5,8 @@ import logging
 import time
 
 from prompts.prompt_reader import load_prompt_md
-from utils.llm_output import completion_text, extract_json_array_text, strip_reasoning
-from utils.schema import IdeaConfig, Script, resolve_path
+from utils.llm_helper import completion_text, extract_json_array_text, strip_reasoning
+from utils.schema import Idea, IdeaConfig, Script, resolve_path
 
 
 def run_stage(
@@ -82,7 +82,7 @@ def generate_scripts(
     return scripts
 
 
-def parse_ideas_from_text(text: str) -> list[dict]:
+def parse_ideas_from_text(text: str) -> list[Idea]:
     """Parse LLM text into validated idea dicts."""
     try:
         payload = json.loads(extract_json_array_text(text))
@@ -99,7 +99,7 @@ def parse_ideas_from_text(text: str) -> list[dict]:
     if not items:
         raise ValueError("JSON array contained no ideas")
 
-    ideas: list[dict] = []
+    ideas: list[Idea] = []
     for index, item in enumerate(items):
         try:
             ideas.append(Script.parse_idea_dict(item))

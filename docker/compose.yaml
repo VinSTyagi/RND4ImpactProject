@@ -48,7 +48,8 @@ services:
       - script_setup/script_setup_runner.py
       - --config
       - configs/script_setup_qwen3_4b.yaml
-      - --all
+      - --2 
+      - --3
 
   # Optional: warm the shared HF cache so later runs only pay weight-load cost.
   # `docker compose run --rm prefetch-model`

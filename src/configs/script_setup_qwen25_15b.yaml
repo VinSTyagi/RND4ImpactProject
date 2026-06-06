@@ -10,7 +10,7 @@ stage_1_vllm_config:
   gpu_memory_utilization: 0.80
   enforce_eager: true
   enable_thinking: true
-  batch_size: 1
+  max_num_seqs: 1
   max_num_batched_tokens: 8192
 
 # Stage 2 (title generation): short outputs, batched across ideas, smaller batched-token budget.
@@ -24,8 +24,21 @@ stage_2_vllm_config:
   gpu_memory_utilization: 0.80
   enforce_eager: true
   enable_thinking: false
-  batch_size: 4
+  max_num_seqs: 4
   max_num_batched_tokens: 3072
+
+stage_3_vllm_config:
+  model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
+  quantization: awq_marlin
+  max_tokens: 4096
+  temperature: 0.25
+  max_model_len: 4096
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  enforce_eager: true
+  enable_thinking: true
+  max_num_seqs: 2
+  max_num_batched_tokens: 4096
 
 idea_config:
   num_ideas: 10
@@ -36,7 +49,6 @@ title_config:
   num_words: 7
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/
-  output_path: data/
 
 scene_config:
   num_scenes: 5
@@ -45,10 +57,8 @@ scene_config:
 
 image_config:
   prompt_path: script_setup/prompts/stage_4.md
-  scene_path: data/
+  script_path: data/
   output_path: data/
 
 video_config:
-  scene_path: data/
-  image_path: data/
-  output_path: data/
+  script_path: data/

@@ -23,7 +23,7 @@ def load_vllm_engine(
     dtype,
     max_model_len: int,
     model: str,
-    batch_size: int,
+    max_num_seqs: int,
     gpu_memory_utilization: float,
     enforce_eager: bool,
     max_num_batched_tokens: int,
@@ -37,7 +37,7 @@ def load_vllm_engine(
         "dtype": dtype,
         "max_model_len": max_model_len,
         "enforce_eager": enforce_eager,
-        "max_num_seqs": batch_size,
+        "max_num_seqs": max_num_seqs,
         "max_num_batched_tokens": max_num_batched_tokens,
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": trust_remote_code,
@@ -46,7 +46,9 @@ def load_vllm_engine(
     if method not in _DISABLED:
         args["quantization"] = method
     llm = LLM(**args)
-    logger.info("vLLM offline inference engine initialized")
+    logger.info(
+        "vLLM offline inference engine initialized (max_num_seqs=%s)", max_num_seqs
+    )
     return llm
 
 
@@ -67,6 +69,8 @@ def sample_params(
     prompt_reserve: int = 512,
     repetition_penalty: float = 1.1,
     top_p: float = 0.9,
+    top_k: int = -1,
+    min_p: float = 0.0,
 ):
     cap = max(256, max_model_len - prompt_reserve)
     if max_tokens > cap:
@@ -82,6 +86,8 @@ def sample_params(
         max_tokens=max_tokens,
         repetition_penalty=repetition_penalty,
         top_p=top_p,
+        top_k=top_k,
+        min_p=min_p,
     )
     return params
 
@@ -93,7 +99,7 @@ def vllm_session(vcfg: VLLMModelConfig):
         dtype="auto",
         max_model_len=vcfg.max_model_len,
         model=vcfg.model_path,
-        batch_size=vcfg.batch_size,
+        max_num_seqs=vcfg.max_num_seqs,
         gpu_memory_utilization=vcfg.gpu_memory_utilization,
         enforce_eager=vcfg.enforce_eager,
         max_num_batched_tokens=vcfg.max_num_batched_tokens,
@@ -107,6 +113,8 @@ def vllm_session(vcfg: VLLMModelConfig):
             max_model_len=vcfg.max_model_len,
             repetition_penalty=vcfg.repetition_penalty,
             top_p=vcfg.top_p,
+            top_k=vcfg.top_k,
+            min_p=vcfg.min_p,
         )
         yield model, params
     finally:

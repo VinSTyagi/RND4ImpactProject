@@ -4,51 +4,67 @@ stage_1_vllm_config:
   model_path: Qwen/Qwen3-4B-AWQ
   quantization: awq_marlin
   max_tokens: 8192
-  temperature: 0.25
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  min_p: 0
   max_model_len: 8192
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.80
-  enforce_eager: true
+  gpu_memory_utilization: 0.90
+  enforce_eager: false
   enable_thinking: true
-  batch_size: 1
+  max_num_seqs: 1
   max_num_batched_tokens: 8192
 
-# Stage 2 (title generation): short outputs, batched across ideas, smaller batched-token budget.
+# Stage 2 (title generation): short outputs, one prompt per script.
 stage_2_vllm_config:
   model_path: Qwen/Qwen3-4B-AWQ
   quantization: awq_marlin
-  max_tokens: 3072
-  temperature: 0.25
-  max_model_len: 3072
+  max_tokens: 4096
+  temperature: 0.7
+  top_p: 0.8
+  top_k: 20
+  min_p: 0
+  max_model_len: 4096
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.80
-  enforce_eager: true
+  gpu_memory_utilization: 0.90
+  enforce_eager: false
   enable_thinking: false
-  batch_size: 4
-  max_num_batched_tokens: 3072
+  max_num_seqs: 4
+  max_num_batched_tokens: 4096
+
+stage_3_vllm_config:
+  model_path: Qwen/Qwen3-4B-AWQ
+  quantization: awq_marlin
+  max_tokens: 4096
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  min_p: 0
+  max_model_len: 4096
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  enforce_eager: false
+  enable_thinking: true
+  max_num_seqs: 4
+  max_num_batched_tokens: 4096
 
 idea_config:
-  num_ideas: 10
+  num_ideas: 1
   prompt_path: script_setup/prompts/stage_1.md
-  output_path: data/
+  output_path: data/ # Will accept format of data/{script_id}/script.json
 
 title_config:
-  num_words: 7
+  num_words: 10
   prompt_path: script_setup/prompts/stage_2.md
-  script_path: data/
-  output_path: data/
+  script_path: data/ # Will accept format of data/{script_id}/script.json
 
 scene_config:
-  num_scenes: 5
+  num_scenes: 7
   prompt_path: script_setup/prompts/stage_3.md
-  script_path: data/
+  script_path: data/ # Will accept format of data/{script_id}/script.json
 
 image_config:
   prompt_path: script_setup/prompts/stage_4.md
-  scene_path: data/
-  output_path: data/
+  script_path: data/ # Will accept format of data/{script_id}/script.json
 
-video_config:
-  scene_path: data/
-  image_path: data/
-  output_path: data/

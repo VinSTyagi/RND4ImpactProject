@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID, uuid4
 
 from PIL import Image
@@ -38,22 +38,88 @@ _IDEA_FIELDS = (
 )
 
 
-def idea_prompt_payload(idea: dict[str, Any]) -> dict[str, str]:
+class Idea(TypedDict):
+    genre: str
+    setting: str
+    premise: str
+    protagonist: str
+    antagonist: str
+    hook: str
+    tone: str
+    theme: str
+    model: str
+
+
+def idea_prompt_payload(idea: Idea) -> dict[str, str]:
     """Story fields only, for stage 2+ prompts."""
-    return {name: str(idea[name]) for name in _IDEA_FIELDS}
+    return {name: idea[name] for name in _IDEA_FIELDS}
+
+
+IMAGE_PROMPT_FIELDS = (
+    "positive_prompt",
+    "negative_prompt",
+    "style_preset",
+    "aspect_ratio",
+    "cfg_scale",
+    "reasoning",
+)
+
+_SCENE_FIELDS = (
+    "scene_number",
+    "scene_title",
+    "act",
+    "setting",
+    "characters",
+    "summary",
+    "conflict",
+    "emotional_beat",
+    "character_change",
+    "ends_on",
+)
+
+
+_VALID_ACTS = frozenset(
+    {"setup", "rising_action", "climax", "falling_action", "resolution"}
+)
+
+
+class ImagePrompt(TypedDict):
+    positive_prompt: list[str]
+    negative_prompt: list[str]
+    style_preset: str
+    aspect_ratio: str
+    cfg_scale: str
+    reasoning: str
+
+
+class Scene(TypedDict):
+    scene_number: int
+    scene_title: str
+    act: str
+    setting: str
+    characters: list[str]
+    summary: str
+    conflict: str
+    emotional_beat: str
+    character_change: str
+    ends_on: str
+    image_prompt: ImagePrompt | None
+    
+def scene_payload(scene: Scene) -> dict[str, str]:
+    return {name: scene[name] for name in _SCENE_FIELDS}
 
 
 @dataclass
 class Script:
-    idea: dict[str, Any]
+    idea: Idea
     model: str
     script_id: UUID = field(default_factory=uuid4)
     raw_title: str | None = None
-    script_scenes: list[str] | None = None
+    script_scenes: list[Scene] | None = None
     images: list[Image] | None = None
 
     @classmethod
-    def parse_idea_dict(cls, data: Any) -> dict[str, Any]:
+    def parse_idea_dict(cls, data: Any) -> Idea:
         """Validate and normalize an idea dict from LLM output or JSON."""
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
@@ -64,11 +130,176 @@ class Script:
         ]
         if missing:
             raise ValueError(f"missing or empty fields: {', '.join(missing)}")
-        idea: dict[str, Any] = {
-            name: str(data[name]).strip() for name in _IDEA_FIELDS
+        idea: Idea = {
+            "genre": str(data["genre"]).strip(),
+            "setting": str(data["setting"]).strip(),
+            "premise": str(data["premise"]).strip(),
+            "protagonist": str(data["protagonist"]).strip(),
+            "antagonist": str(data["antagonist"]).strip(),
+            "hook": str(data["hook"]).strip(),
+            "tone": str(data["tone"]).strip(),
+            "theme": str(data["theme"]).strip(),
+            "model": str(data.get("model") or "").strip(),
         }
-        idea["model"] = str(data.get("model") or "").strip()
         return idea
+
+    @classmethod
+    def parse_scene_dict(cls, data: Any) -> Scene:
+        """Validate and normalize a scene dict from LLM output or JSON."""
+        if not isinstance(data, dict):
+            raise TypeError(f"expected dict, got {type(data).__name__}")
+
+        missing = [name for name in _SCENE_FIELDS if name not in data]
+        if missing:
+            raise ValueError(f"missing fields: {', '.join(missing)}")
+
+        act = str(data["act"]).strip()
+        if act not in _VALID_ACTS:
+            raise ValueError(f"invalid act: {act}")
+
+        characters = data["characters"]
+        if not isinstance(characters, list) or not characters:
+            raise ValueError("characters must be a non-empty array")
+
+        scene_number = data["scene_number"]
+        if not isinstance(scene_number, int):
+            raise TypeError("scene_number must be an integer")
+
+        image_prompt_data = data.get("image_prompt")
+        if image_prompt_data is None:
+            scene_image_prompt = None
+        else:
+            scene_image_prompt = cls.parse_img_prompt_dict(image_prompt_data)
+
+        scene_characters = [
+            str(name).strip() for name in characters if str(name).strip()
+        ]
+        if not scene_characters:
+            raise ValueError("characters must contain at least one name")
+
+        scene: Scene = {
+            "scene_number": scene_number,
+            "act": act,
+            "characters": scene_characters,
+            "scene_title": str(data["scene_title"]).strip(),
+            "setting": str(data["setting"]).strip(),
+            "summary": str(data["summary"]).strip(),
+            "conflict": str(data["conflict"]).strip(),
+            "emotional_beat": str(data["emotional_beat"]).strip(),
+            "character_change": str(data["character_change"]).strip(),
+            "ends_on": str(data["ends_on"]).strip(),
+            "image_prompt": scene_image_prompt,
+        }
+        for name in (
+            "scene_title",
+            "setting",
+            "summary",
+            "conflict",
+            "emotional_beat",
+            "character_change",
+            "ends_on",
+        ):
+            if not scene[name]:
+                raise ValueError(f"{name} must be a non-empty string")
+        return scene
+
+    @classmethod
+    def parse_scenes_list(cls, data: Any) -> list[Scene] | None:
+        """Validate script_scenes from JSON (dicts or legacy JSON strings)."""
+        if data is None:
+            return None
+        if not isinstance(data, list):
+            raise ValueError("script_scenes must be a list or null")
+
+        scenes: list[Scene] = []
+        for index, item in enumerate(data):
+            if isinstance(item, str):
+                try:
+                    item = json.loads(item)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"script_scenes[{index}] is not valid JSON: {exc}"
+                    ) from exc
+            try:
+                scenes.append(cls.parse_scene_dict(item))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"script_scenes[{index}]: {exc}") from exc
+        return scenes
+
+    @classmethod
+    def _coerce_prompt_tags(cls, value: Any, field: str) -> list[str]:
+        if isinstance(value, str):
+            tags = [part.strip() for part in value.split(",") if part.strip()]
+        elif isinstance(value, list):
+            tags = [str(part).strip() for part in value if str(part).strip()]
+        else:
+            raise ValueError(f"{field} must be a string or non-empty array")
+        if not tags:
+            raise ValueError(f"{field} must not be empty")
+        return tags
+
+    @classmethod
+    def parse_img_prompt_dict(cls, data: Any) -> ImagePrompt:
+        """Validate and normalize an image prompt dict from LLM output or JSON."""
+        if not isinstance(data, dict):
+            raise TypeError(f"expected dict, got {type(data).__name__}")
+
+        missing = [name for name in IMAGE_PROMPT_FIELDS if name not in data]
+        if missing:
+            raise ValueError(f"missing fields: {', '.join(missing)}")
+
+        positive_prompt = cls._coerce_prompt_tags(
+            data["positive_prompt"], "positive_prompt"
+        )
+        negative_prompt = cls._coerce_prompt_tags(
+            data["negative_prompt"], "negative_prompt"
+        )
+
+        style_preset = str(data["style_preset"]).strip()
+        aspect_ratio = str(data["aspect_ratio"]).strip()
+        reasoning = str(data["reasoning"]).strip()
+        cfg_scale = str(data["cfg_scale"]).strip()
+
+        for name, value in (
+            ("style_preset", style_preset),
+            ("aspect_ratio", aspect_ratio),
+            ("reasoning", reasoning),
+            ("cfg_scale", cfg_scale),
+        ):
+            if not value:
+                raise ValueError(f"{name} must be a non-empty string")
+
+        return {
+            "positive_prompt": positive_prompt,
+            "negative_prompt": negative_prompt,
+            "style_preset": style_preset,
+            "aspect_ratio": aspect_ratio,
+            "cfg_scale": cfg_scale,
+            "reasoning": reasoning,
+        }
+
+    @classmethod
+    def attach_image_prompts(
+        cls, scenes: list[Scene], image_prompts: list[ImagePrompt]
+    ) -> list[Scene]:
+        """Return scenes with image_prompt set from a parallel prompt list."""
+        if len(scenes) != len(image_prompts):
+            raise ValueError(
+                f"expected {len(scenes)} image prompt(s) but received "
+                f"{len(image_prompts)}"
+            )
+        updated: list[Scene] = []
+        for scene, image_prompt in zip(scenes, image_prompts):
+            updated.append({**scene, "image_prompt": image_prompt})
+        return updated
+
+    def prompt_payload(self) -> dict[str, str]:
+        """Story fields plus title, for stage 3 prompts."""
+        if not self.raw_title:
+            raise ValueError(f"script {self.script_id} missing raw_title")
+        payload = idea_prompt_payload(self.idea)
+        payload["title"] = self.raw_title
+        return payload
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -93,9 +324,7 @@ class Script:
         raw_title = data.get("raw_title")
         if raw_title is not None:
             raw_title = str(raw_title).strip() or None
-        script_scenes = data.get("script_scenes")
-        if script_scenes is not None and not isinstance(script_scenes, list):
-            raise ValueError("script_scenes must be a list or null")
+        script_scenes = cls.parse_scenes_list(data.get("script_scenes"))
         return cls(
             idea=idea,
             model=model,
@@ -147,13 +376,15 @@ class VLLMModelConfig:
     max_tokens: int = 1536
     temperature: float = 0.25
     top_p: float = 0.9
+    top_k: int = -1
+    min_p: float = 0.0
     repetition_penalty: float = 1.1
     enable_thinking: bool = True
     max_model_len: int = 2048
     tensor_parallel_size: int = 1
     gpu_memory_utilization: float = 0.80
     enforce_eager: bool = True
-    batch_size: int = 1
+    max_num_seqs: int = 1
     max_num_batched_tokens: int = 8192
 
 
@@ -167,41 +398,37 @@ class IdeaConfig:
 @dataclass
 class TitleConfig:
     num_words: int = 10
-    max_retries: int = 3
     prompt_path: str = "script_setup/prompts/stage_2.md"
     script_path: str = "data/"
-    output_path: str = "data/"
 
 
 @dataclass
 class SceneConfig:
-    num_scenes: int = 8
+    num_scenes: int = 5
     prompt_path: str = "script_setup/prompts/stage_3.md"
     script_path: str = "data/"
 
 
 @dataclass
-class ImageConfig:
+class ImagePromptConfig:
     prompt_path: str = "script_setup/prompts/stage_4.md"
-    scene_path: str = "data/"
-    output_path: str = "data/"
+    script_path: str = "data/"
 
 
 @dataclass
 class VideoConfig:
-    scene_path: str = "data/"
-    image_path: str = "data/"
-    output_path: str = "data/"
+    script_path: str = "data/"
 
 
 @dataclass
 class PipelineConfig:
     stage_1_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
     stage_2_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
+    stage_3_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
     idea_config: IdeaConfig = field(default_factory=IdeaConfig)
     title_config: TitleConfig = field(default_factory=TitleConfig)
     scene_config: SceneConfig = field(default_factory=SceneConfig)
-    image_config: ImageConfig = field(default_factory=ImageConfig)
+    image_config: ImagePromptConfig = field(default_factory=ImagePromptConfig)
     video_config: VideoConfig = field(default_factory=VideoConfig)
 
 
@@ -266,9 +493,10 @@ def load_config(path: str) -> PipelineConfig:
     return PipelineConfig(
         stage_1_vllm_config=VLLMModelConfig(**_section(data, "stage_1_vllm_config")),
         stage_2_vllm_config=VLLMModelConfig(**_section(data, "stage_2_vllm_config")),
+        stage_3_vllm_config=VLLMModelConfig(**_section(data, "stage_3_vllm_config")),
         idea_config=IdeaConfig(**_section(data, "idea_config")),
         title_config=TitleConfig(**_section(data, "title_config")),
         scene_config=SceneConfig(**_section(data, "scene_config")),
-        image_config=ImageConfig(**_section(data, "image_config")),
+        image_config=ImagePromptConfig(**_section(data, "image_config")),
         video_config=VideoConfig(**_section(data, "video_config")),
     )

@@ -3,15 +3,15 @@
 stage_1_vllm_config:
   model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
   quantization: awq_marlin
-  max_tokens: 8192
+  max_tokens: 4096
   temperature: 0.25
-  max_model_len: 8192
+  max_model_len: 4096
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.80
-  enforce_eager: true
-  enable_thinking: false
-  batch_size: 1
-  max_num_batched_tokens: 8192
+  enforce_eager: false
+  enable_thinking: true
+  max_num_seqs: 2
+  max_num_batched_tokens: 4096
 
 # Stage 2 (title generation): short outputs, batched across ideas, smaller batched-token budget.
 stage_2_vllm_config:
@@ -19,36 +19,45 @@ stage_2_vllm_config:
   quantization: awq_marlin
   max_tokens: 512
   temperature: 0.25
-  max_model_len: 8192
+  max_model_len: 3072
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.80
-  enforce_eager: true
+  enforce_eager: false
   enable_thinking: false
-  batch_size: 4
+  max_num_seqs: 4
   max_num_batched_tokens: 3072
 
+stage_3_vllm_config:
+  model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
+  quantization: awq_marlin
+  max_tokens: 3172
+  temperature: 0.25
+  max_model_len: 3172
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.90
+  enforce_eager: false
+  enable_thinking: true
+  max_num_seqs: 3
+  max_num_batched_tokens: 3172
+
 idea_config:
-  num_ideas: 10
+  num_ideas: 1
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/
 
 title_config:
-  num_words: 7
+  num_words: 5
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/
-  output_path: data/
 
 scene_config:
-  num_scenes: 5
+  num_scenes: 7
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
 
 image_config:
   prompt_path: script_setup/prompts/stage_4.md
-  scene_path: data/
-  output_path: data/
+  script_path: data/
 
 video_config:
-  scene_path: data/
-  image_path: data/
-  output_path: data/
+  script_path: data/
