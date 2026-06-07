@@ -1,6 +1,5 @@
 # ~6GB VRAM: ~1GB weights + ~0.9GB KV @ 32768 ctx; only 2 KV heads makes cache tiny. Gen limit: 8K.
-# Stage 1 (idea generation): one long completion, no batching, full context budget.
-stage_1_vllm_config:
+global_vllm_config:
   model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
   quantization: awq_marlin
   max_tokens: 8192
@@ -10,49 +9,8 @@ stage_1_vllm_config:
   gpu_memory_utilization: 0.80
   enforce_eager: true
   enable_thinking: true
-  max_num_seqs: 1
-  max_num_batched_tokens: 8192
-
-# Stage 2 (title generation): short outputs, batched across ideas, smaller batched-token budget.
-stage_2_vllm_config:
-  model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
-  quantization: awq_marlin
-  max_tokens: 512
-  temperature: 0.25
-  max_model_len: 32768
-  tensor_parallel_size: 1
-  gpu_memory_utilization: 0.80
-  enforce_eager: true
-  enable_thinking: false
   max_num_seqs: 4
-  max_num_batched_tokens: 3072
-
-stage_3_vllm_config:
-  model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
-  quantization: awq_marlin
-  max_tokens: 4096
-  temperature: 0.25
-  max_model_len: 4096
-  tensor_parallel_size: 1
-  gpu_memory_utilization: 0.90
-  enforce_eager: true
-  enable_thinking: true
-  max_num_seqs: 2
-  max_num_batched_tokens: 4096
-
-# Stage 4 (SDXL image prompt generation): one prompt per scene, batched per script.
-stage_4_vllm_config:
-  model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
-  quantization: awq_marlin
-  max_tokens: 2048
-  temperature: 0.25
-  max_model_len: 4096
-  tensor_parallel_size: 1
-  gpu_memory_utilization: 0.90
-  enforce_eager: true
-  enable_thinking: false
-  max_num_seqs: 8
-  max_num_batched_tokens: 4096
+  max_num_batched_tokens: 8192
 
 idea_config:
   num_ideas: 10

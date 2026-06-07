@@ -104,14 +104,14 @@ def generate_prompts(
             )
 
         image_prompts: list[ImagePrompt] = []
-        for scene_index, request_output in enumerate(raw_outputs):
+        for i, output in enumerate(raw_outputs):
             try:
-                answer_text = strip_reasoning(request_output_text(request_output))
+                answer_text = strip_reasoning(request_output_text(output))
                 image_prompts.extend(parse_prompts_from_text(answer_text, num_scenes=1))
             except ValueError as exc:
                 raise ValueError(
                     f"failed to parse image prompt for script {script.script_id} "
-                    f"scene {scene_index}: {exc}"
+                    f"scene {i}: {exc}"
                 ) from exc
 
         script.script_scenes = Script.attach_image_prompts(scenes, image_prompts)

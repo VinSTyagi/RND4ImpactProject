@@ -36,7 +36,7 @@ logger = configure_logging()
 
 
 def run_stage_1(pipeline_config: PipelineConfig, state: dict) -> dict:
-    vcfg = pipeline_config.stage_1_vllm_config
+    vcfg = pipeline_config.global_vllm_config
     idea_cfg = pipeline_config.idea_config
     with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
         tokenizer = model.get_tokenizer()
@@ -56,7 +56,7 @@ def run_stage_1(pipeline_config: PipelineConfig, state: dict) -> dict:
 
 
 def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
-    vcfg = pipeline_config.stage_2_vllm_config
+    vcfg = pipeline_config.global_vllm_config
     title_cfg = pipeline_config.title_config
     scripts = state.get("scripts")
     if scripts is None:
@@ -81,7 +81,7 @@ def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
 
 
 def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
-    vcfg = pipeline_config.stage_3_vllm_config
+    vcfg = pipeline_config.global_vllm_config
     scene_cfg = pipeline_config.scene_config
     scripts = state.get("scripts")
     if scripts is None:
@@ -105,7 +105,7 @@ def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
     return state
 
 def run_stage_4(pipeline_config: PipelineConfig, state: dict) -> dict:
-    vcfg = pipeline_config.stage_4_vllm_config
+    vcfg = pipeline_config.global_vllm_config
     img_prompt_cfg = pipeline_config.image_config
     scripts = state.get("scripts")
     if scripts is None:

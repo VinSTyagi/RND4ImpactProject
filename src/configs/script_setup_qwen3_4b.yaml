@@ -1,39 +1,5 @@
 # ~6GB VRAM: ~2.7GB weights + ~1.1GB KV @ 8192 ctx (~1.0GB headroom). Thinking needs extra ctx room.
-# Stage 1 (idea generation): one long completion, no batching, full context budget.
-stage_1_vllm_config:
-  model_path: Qwen/Qwen3-4B-AWQ
-  quantization: awq_marlin
-  max_tokens: 8192
-  temperature: 0.6
-  top_p: 0.95
-  top_k: 20
-  min_p: 0
-  max_model_len: 8192
-  tensor_parallel_size: 1
-  gpu_memory_utilization: 0.90
-  enforce_eager: false
-  enable_thinking: true
-  max_num_seqs: 1
-  max_num_batched_tokens: 8192
-
-# Stage 2 (title generation): short outputs, one prompt per script.
-stage_2_vllm_config:
-  model_path: Qwen/Qwen3-4B-AWQ
-  quantization: awq_marlin
-  max_tokens: 4096
-  temperature: 0.7
-  top_p: 0.8
-  top_k: 20
-  min_p: 0
-  max_model_len: 4096
-  tensor_parallel_size: 1
-  gpu_memory_utilization: 0.90
-  enforce_eager: false
-  enable_thinking: false
-  max_num_seqs: 4
-  max_num_batched_tokens: 4096
-
-stage_3_vllm_config:
+global_vllm_config:
   model_path: Qwen/Qwen3-4B-AWQ
   quantization: awq_marlin
   max_tokens: 4096
@@ -47,37 +13,20 @@ stage_3_vllm_config:
   enforce_eager: false
   enable_thinking: true
   max_num_seqs: 4
-  max_num_batched_tokens: 4096
-
-# Stage 4 (SDXL image prompt generation): one prompt per scene, batched per script.
-stage_4_vllm_config:
-  model_path: Qwen/Qwen3-4B-AWQ
-  quantization: awq_marlin
-  max_tokens: 2048
-  temperature: 0.6
-  top_p: 0.95
-  top_k: 20
-  min_p: 0
-  max_model_len: 4096
-  tensor_parallel_size: 1
-  gpu_memory_utilization: 0.90
-  enforce_eager: false
-  enable_thinking: false
-  max_num_seqs: 8
   max_num_batched_tokens: 4096
 
 idea_config:
-  num_ideas: 1
+  num_ideas: 5
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/ # Will accept format of data/{script_id}/script.json
 
 title_config:
-  num_words: 10
+  num_words: 5
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/ # Will accept format of data/{script_id}/script.json
 
 scene_config:
-  num_scenes: 7
+  num_scenes: 5
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/ # Will accept format of data/{script_id}/script.json
 

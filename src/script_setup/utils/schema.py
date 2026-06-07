@@ -422,10 +422,7 @@ class VideoConfig:
 
 @dataclass
 class PipelineConfig:
-    stage_1_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
-    stage_2_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
-    stage_3_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
-    stage_4_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
+    global_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
     idea_config: IdeaConfig = field(default_factory=IdeaConfig)
     title_config: TitleConfig = field(default_factory=TitleConfig)
     scene_config: SceneConfig = field(default_factory=SceneConfig)
@@ -492,10 +489,7 @@ def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
 def load_config(path: str) -> PipelineConfig:
     data = _load_yaml(path)
     return PipelineConfig(
-        stage_1_vllm_config=VLLMModelConfig(**_section(data, "stage_1_vllm_config")),
-        stage_2_vllm_config=VLLMModelConfig(**_section(data, "stage_2_vllm_config")),
-        stage_3_vllm_config=VLLMModelConfig(**_section(data, "stage_3_vllm_config")),
-        stage_4_vllm_config=VLLMModelConfig(**_section(data, "stage_4_vllm_config")),
+        global_vllm_config=VLLMModelConfig(**_section(data, "global_vllm_config")),
         idea_config=IdeaConfig(**_section(data, "idea_config")),
         title_config=TitleConfig(**_section(data, "title_config")),
         scene_config=SceneConfig(**_section(data, "scene_config")),

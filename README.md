@@ -81,9 +81,9 @@ rebuild the image so the container picks up the new stack.
 
 ### Run pipeline stages
 
-The runner takes one flag per stage; combine them freely or use `--all`. Each
-selected stage loads its own vLLM engine (`stage_1_vllm_config` /
-`stage_2_vllm_config` in the YAML) and tears it down before the next stage
+The runner takes one flag per stage; combine them freely or use `--all`. All
+stages share one vLLM config (`global_vllm_config` in the YAML). Each selected
+stage loads the engine with that config and tears it down before the next stage
 starts, and stages always run in ascending order.
 
 ```bash
@@ -135,14 +135,14 @@ docker compose up jupyter                    # JupyterLab on http://localhost:88
 
 - The compose services request all GPUs (`--gpus all`); set
   `CUDA_VISIBLE_DEVICES` in `docker/.env` to pin a specific GPU.
-- `shm_size: "16gb"` is provided for vLLM; raise it for larger models.
-- Keep the YAML knobs (`gpu_memory_utilization`, `enforce_eager`,
+- `shm_size: "8gb"` is provided for vLLM; raise it for larger models or batch sizes.
+- Keep the `global_vllm_config` knobs (`gpu_memory_utilization`, `enforce_eager`,
   `max_model_len`, `quantization`) tuned to your VRAM, e.g.
   [`src/configs/script_setup_qwen3_4b.yaml`](src/configs/script_setup_qwen3_4b.yaml).
 - vLLM **0.8.5** loads Qwen3 with the native CUDA backend (no Transformers fallback).
 - Compose sets `VLLM_USE_V1=0` by default. If you see `EngineCore failed to start` /
   `BackendCompilerFailed` during model load, confirm that variable is `0` and keep
-  `enforce_eager: true` in the YAML until V1 + torch.compile is stable on your GPU.
+  `enforce_eager: true` in `global_vllm_config` until V1 + torch.compile is stable on your GPU.
 
 ## Virtual environments
 

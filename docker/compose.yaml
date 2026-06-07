@@ -21,7 +21,7 @@ x-common: &common
     dockerfile: docker/Dockerfile
   # vLLM uses shared memory for its worker/KV machinery. On Docker Desktop a
   # large shm replaces host IPC; on native Linux `ipc: host` is also honored.
-  shm_size: "16gb"
+  shm_size: "8gb"
   ipc: host
   environment:
     HF_HOME: /root/.cache/huggingface
@@ -48,7 +48,7 @@ services:
       - script_setup/script_setup_runner.py
       - --config
       - configs/script_setup_qwen3_4b.yaml
-      - --4 
+      - --all
 
   # Optional: warm the shared HF cache so later runs only pay weight-load cost.
   # `docker compose run --rm prefetch-model`
