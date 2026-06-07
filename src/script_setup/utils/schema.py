@@ -104,7 +104,8 @@ class Scene(TypedDict):
     character_change: str
     ends_on: str
     image_prompt: ImagePrompt | None
-    
+
+
 def scene_payload(scene: Scene) -> dict[str, str]:
     return {name: scene[name] for name in _SCENE_FIELDS}
 
@@ -416,18 +417,12 @@ class ImagePromptConfig:
 
 
 @dataclass
-class VideoConfig:
-    script_path: str = "data/"
-
-
-@dataclass
 class PipelineConfig:
     global_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
     idea_config: IdeaConfig = field(default_factory=IdeaConfig)
     title_config: TitleConfig = field(default_factory=TitleConfig)
     scene_config: SceneConfig = field(default_factory=SceneConfig)
     image_config: ImagePromptConfig = field(default_factory=ImagePromptConfig)
-    video_config: VideoConfig = field(default_factory=VideoConfig)
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
@@ -494,5 +489,4 @@ def load_config(path: str) -> PipelineConfig:
         title_config=TitleConfig(**_section(data, "title_config")),
         scene_config=SceneConfig(**_section(data, "scene_config")),
         image_config=ImagePromptConfig(**_section(data, "image_config")),
-        video_config=VideoConfig(**_section(data, "video_config")),
     )

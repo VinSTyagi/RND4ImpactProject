@@ -138,7 +138,7 @@ docker compose up jupyter                    # JupyterLab on http://localhost:88
 - `shm_size: "8gb"` is provided for vLLM; raise it for larger models or batch sizes.
 - Keep the `global_vllm_config` knobs (`gpu_memory_utilization`, `enforce_eager`,
   `max_model_len`, `quantization`) tuned to your VRAM, e.g.
-  [`src/configs/script_setup_qwen3_4b.yaml`](src/configs/script_setup_qwen3_4b.yaml).
+  [`src/script_setup/configs/script_setup_qwen3_4b.yaml`](src/script_setup/configs/script_setup_qwen3_4b.yaml).
 - vLLM **0.8.5** loads Qwen3 with the native CUDA backend (no Transformers fallback).
 - Compose sets `VLLM_USE_V1=0` by default. If you see `EngineCore failed to start` /
   `BackendCompilerFailed` during model load, confirm that variable is `0` and keep
