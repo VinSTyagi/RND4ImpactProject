@@ -1,0 +1,72 @@
+name: rnd4impact-script-setup
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+x-common: &common
+  <<: *gpu
+  image: rnd4impact-script:cuda124
+  build:
+    context: ../..
+    dockerfile: docker/script_setup/Dockerfile
+  shm_size: "8gb"
+  ipc: host
+  environment:
+    HF_HOME: /root/.cache/huggingface
+    HF_TOKEN: ${HF_TOKEN:-}
+    HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    VLLM_USE_V1: ${VLLM_USE_V1:-0}
+    HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+  volumes:
+    - ../../data:/workspace/data
+    - hf_cache:/root/.cache/huggingface
+
+services:
+  script-setup:
+    <<: *common
+    command:
+      - python
+      - script_setup/script_setup_runner.py
+      - --config
+      - configs/script_setup_qwen3_4b.yaml
+      - --all
+
+  prefetch-model:
+    <<: *common
+    profiles: ["tools"]
+    command:
+      - huggingface-cli
+      - download
+      - ${MODEL:-Qwen/Qwen3-4B-AWQ}
+
+  shell:
+    <<: *common
+    profiles: ["tools"]
+    stdin_open: true
+    tty: true
+    command: ["bash"]
+
+  jupyter:
+    <<: *common
+    profiles: ["jupyter"]
+    ports:
+      - "8888:8888"
+    command:
+      - jupyter
+      - lab
+      - --ip=0.0.0.0
+      - --port=8888
+      - --no-browser
+      - --allow-root
+      - --ServerApp.token=
+
+volumes:
+  hf_cache:
+    name: rnd4impact_script_hf_cache

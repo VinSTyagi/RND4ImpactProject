@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from utils import stage_1, stage_2, stage_3, stage_4, vllm_wrapper
+from utils import prefetch, stage_1, stage_2, stage_3, stage_4, vllm_wrapper
 from utils.schema import (
     PipelineConfig,
     Script,
@@ -151,6 +151,8 @@ def resolve_stages(
         return sorted(STAGES)
     selected = [n for n in STAGES if getattr(args, f"stage_{n}")]
     if not selected:
+        if args.prefetch:
+            return []
         flags = ", ".join(f"--{n}" for n in sorted(STAGES))
         parser.error(f"Specify at least one stage: {flags}, or --all")
     return sorted(selected)
@@ -178,6 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run all implemented stages (overrides individual --N flags)",
     )
+    parser.add_argument(
+        "--prefetch",
+        action="store_true",
+        help="Download Hugging Face weights for the configured vLLM model",
+    )
     return parser
 
 
@@ -198,6 +205,17 @@ def main() -> None:
     logger.info("Loaded config from %s", args.config)
 
     stages = resolve_stages(args, parser)
+
+    if args.prefetch:
+        model_paths = prefetch.collect_model_paths(pipeline_config)
+        logger.info("Prefetching models: %s", ", ".join(model_paths))
+        prefetch.prefetch_models(model_paths)
+        if not stages:
+            return
+
+    if not stages:
+        flags = ", ".join(f"--{n}" for n in sorted(STAGES))
+        parser.error(f"Specify at least one stage: {flags}, or --all")
     logger.info("Running stages: %s", ", ".join(str(n) for n in stages))
 
     state: dict = {}

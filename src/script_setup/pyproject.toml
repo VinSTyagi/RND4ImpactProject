@@ -1,0 +1,55 @@
+[project]
+name = "rnd4impact-script-setup"
+version = "0.1.0"
+description = "RND4Impact vLLM script pipeline (stages 1–4)"
+requires-python = ">=3.10,<3.13"
+license = { text = "Apache-2.0" }
+dependencies = [
+    # PyTorch stack (CUDA 12.4 index via [tool.uv.sources])
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "torchaudio==2.6.0",
+    "xformers==0.0.29.post2",
+    # LLM / NLP (HF)
+    "transformers>=4.51.1,<5",
+    "tokenizers>=0.20",
+    "sentencepiece>=0.2",
+    "protobuf>=4.25",
+    # vLLM 0.8.x: native Qwen3, torch 2.6.0 (cu124). vLLM 0.9+ needs torch 2.7 / cu128.
+    "vllm==0.8.5",
+    # Pipeline utilities
+    "huggingface-hub>=0.24",
+    "pillow>=10.2",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "numpy>=1.26,<3",
+    "setuptools>=75",
+    # TTS (coqui-tts fork; import as TTS)
+    "coqui-tts[languages]>=0.27.5,<0.28",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+    "scipy>=1.11",
+    "pydub>=0.25",
+    # Jupyter compose profile
+    "jupyterlab>=4.2",
+    "ipykernel>=6.29",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
+xformers = { index = "pytorch-cu124" }
+
+[tool.uv]
+constraint-dependencies = [
+    "torch==2.6.0",
+    "torchvision==0.21.0",
+    "torchaudio==2.6.0",
+    "xformers==0.0.29.post2",
+]

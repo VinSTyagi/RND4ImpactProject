@@ -1,0 +1,49 @@
+name: rnd4impact-image-setup
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+x-common: &common
+  <<: *gpu
+  image: rnd4impact-image:cuda124
+  build:
+    context: ../..
+    dockerfile: docker/image_setup/Dockerfile
+  shm_size: "2gb"
+  ipc: host
+  environment:
+    HF_HOME: /root/.cache/huggingface
+    HF_TOKEN: ${HF_TOKEN:-}
+    HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+  volumes:
+    - ../../data:/workspace/data
+    - hf_cache:/root/.cache/huggingface
+
+services:
+  image-setup:
+    <<: *common
+    command:
+      - python
+      - image_setup/image_setup_runner.py
+      - --config
+      - configs/image_setup_ssd1b_low_vram.yaml
+      - --all
+
+  shell:
+    <<: *common
+    profiles: ["tools"]
+    stdin_open: true
+    tty: true
+    command: ["bash"]
+
+volumes:
+  hf_cache:
+    name: rnd4impact_image_hf_cache

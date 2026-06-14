@@ -1,5 +1,5 @@
-# Keep the build context small and Linux-clean. The image installs deps fresh
-# (uv sync on Linux) and only needs pyproject.toml + src/ + README/LICENSE.
+# Keep the build context small and Linux-clean. Each Dockerfile copies only its
+# module tree; these excludes shrink context upload when building from repo root.
 
 # Local virtualenvs (Windows-built, multi-GB, wrong platform)
 .venv/
@@ -13,6 +13,11 @@ uv.lock
 
 # Vendored / cloned trees
 vendor/
+
+# Other pipeline modules (not baked into script_setup / image_setup images)
+src/vid_setup/
+src/shared/
+src/rnd4impact/
 
 # VCS + IDE + agent tooling
 .git/
@@ -36,4 +41,4 @@ docs/
 *.pdf
 
 # Docker artifacts themselves
-docker/.env
+docker/**/.env

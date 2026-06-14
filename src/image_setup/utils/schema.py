@@ -10,7 +10,12 @@ from PIL import Image
 
 import yaml
 
-from utils.image_prompt import coerce_prompt_tags, normalize_image_prompt_fields
+from utils.image_prompt import (
+    coerce_prompt_tags,
+    join_prompt_tags,
+    normalize_image_prompt_fields,
+    truncate_tags_to_clip,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_ROOT = Path(__file__).resolve().parents[2]
@@ -343,59 +348,105 @@ class Script:
             raise
 
 
-@dataclass
-class VLLMModelConfig:
-    model_path: str = "Qwen/Qwen3-4B-AWQ"
-    quantization: str = "awq"
-    max_tokens: int = 1536
-    temperature: float = 0.25
-    top_p: float = 0.9
-    top_k: int = -1
-    min_p: float = 0.0
-    repetition_penalty: float = 1.1
-    enable_thinking: bool = True
-    max_model_len: int = 2048
-    tensor_parallel_size: int = 1
-    gpu_memory_utilization: float = 0.80
-    enforce_eager: bool = True
-    max_num_seqs: int = 1
-    max_num_batched_tokens: int = 8192
+_ASPECT_SIZES_SDXL: dict[str, tuple[int, int]] = {
+    "16:9": (1344, 768),
+    "9:16": (768, 1344),
+    "1:1": (1024, 1024),
+}
+
+_ASPECT_SIZES_SD15: dict[str, tuple[int, int]] = {
+    "16:9": (768, 432),
+    "9:16": (432, 768),
+    "1:1": (512, 512),
+}
+
+_ASPECT_SIZES_BY_PIPELINE: dict[str, dict[str, tuple[int, int]]] = {
+    "sdxl": _ASPECT_SIZES_SDXL,
+    "sd15": _ASPECT_SIZES_SD15,
+}
+
+_SUPPORTED_PIPELINE_TYPES = frozenset(_ASPECT_SIZES_BY_PIPELINE)
 
 
 @dataclass
-class IdeaConfig:
-    num_ideas: int = 5
-    prompt_path: str = "script_setup/prompts/stage_1.md"
-    output_path: str = "data/"
+class DiffusionPipelineConfig:
+    type: str = "sdxl"
+    model_path: str = "stabilityai/stable-diffusion-xl-base-1.0"
+    variant: str | None = "fp16"
+    scheduler: str = "euler"
+    # Optional distilled UNet weights (e.g. ByteDance/SDXL-Lightning checkpoints).
+    unet_checkpoint_repo: str | None = None
+    unet_checkpoint_file: str | None = None
+
+    def uses_distilled_low_cfg(self) -> bool:
+        """True for turbo/lightning-style models that need low guidance scale."""
+        if "turbo" in self.model_path.lower():
+            return True
+        repo = self.unet_checkpoint_repo or ""
+        return "lightning" in repo.lower()
+
+    def uses_lightning_unet(self) -> bool:
+        return bool(self.unet_checkpoint_repo and self.unet_checkpoint_file)
 
 
 @dataclass
-class TitleConfig:
-    num_words: int = 10
-    prompt_path: str = "script_setup/prompts/stage_2.md"
+class QuantizationConfig:
+    torch_dtype: str = "float16"
+    enable_model_cpu_offload: bool = False
+    enable_sequential_cpu_offload: bool = False
+    enable_vae_slicing: bool = True
+    enable_vae_tiling: bool = False
+    enable_attention_slicing: bool = False
+
+
+@dataclass
+class GenerationConfig:
+    num_inference_steps: int = 30
+    default_guidance_scale: float = 7.5
+    seed: int | None = None
+    device: str = "cuda"
+
+
+@dataclass
+class OutputConfig:
     script_path: str = "data/"
+    raw_subdir: str = "raw_images"
+    output_subdir: str = "refined_images"
+    filename_template: str = "scene_{scene_number:02d}.png"
+    save_raw: bool = True
+    skip_existing: bool = True
 
 
 @dataclass
-class SceneConfig:
-    num_scenes: int = 5
-    prompt_path: str = "script_setup/prompts/stage_3.md"
-    script_path: str = "data/"
+class RefinementConfig:
+    enabled: bool = True
+    type: str = "sdxl_refiner"
+    model_path: str = "stabilityai/stable-diffusion-xl-refiner-1.0"
+    variant: str | None = "fp16"
+    scheduler: str = "euler"
+    num_inference_steps: int = 20
+    denoising_start: float = 0.8
+    denoising_end: float = 0.8
+    strength: float = 0.35
 
 
 @dataclass
-class ImagePromptConfig:
-    prompt_path: str = "script_setup/prompts/stage_4.md"
-    script_path: str = "data/"
+class ImageSetupPipelineConfig:
+    pipeline_config: DiffusionPipelineConfig = field(
+        default_factory=DiffusionPipelineConfig
+    )
+    quantization_config: QuantizationConfig = field(default_factory=QuantizationConfig)
+    generation_config: GenerationConfig = field(default_factory=GenerationConfig)
+    refinement_config: RefinementConfig = field(default_factory=RefinementConfig)
+    output_config: OutputConfig = field(default_factory=OutputConfig)
 
 
-@dataclass
-class PipelineConfig:
-    global_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
-    idea_config: IdeaConfig = field(default_factory=IdeaConfig)
-    title_config: TitleConfig = field(default_factory=TitleConfig)
-    scene_config: SceneConfig = field(default_factory=SceneConfig)
-    image_config: ImagePromptConfig = field(default_factory=ImagePromptConfig)
+def refinement_active(config: ImageSetupPipelineConfig) -> bool:
+    """True when stage 2 should run a refinement backend."""
+    ref_cfg = config.refinement_config
+    if not ref_cfg.enabled:
+        return False
+    return ref_cfg.type.strip().lower() not in {"", "none"}
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
@@ -454,12 +505,117 @@ def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def load_config(path: str) -> PipelineConfig:
+def load_config(path: str) -> ImageSetupPipelineConfig:
     data = _load_yaml(path)
-    return PipelineConfig(
-        global_vllm_config=VLLMModelConfig(**_section(data, "global_vllm_config")),
-        idea_config=IdeaConfig(**_section(data, "idea_config")),
-        title_config=TitleConfig(**_section(data, "title_config")),
-        scene_config=SceneConfig(**_section(data, "scene_config")),
-        image_config=ImagePromptConfig(**_section(data, "image_config")),
+    return ImageSetupPipelineConfig(
+        pipeline_config=DiffusionPipelineConfig(**_section(data, "pipeline_config")),
+        quantization_config=QuantizationConfig(**_section(data, "quantization_config")),
+        generation_config=GenerationConfig(**_section(data, "generation_config")),
+        refinement_config=RefinementConfig(**_section(data, "refinement_config")),
+        output_config=OutputConfig(**_section(data, "output_config")),
     )
+
+
+def parse_cfg_scale(value: str, default: float) -> float:
+    raw = str(value).strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"invalid cfg_scale: {value!r}") from exc
+
+
+def validate_pipeline_config(config: ImageSetupPipelineConfig) -> None:
+    """Reject incompatible pipeline and refinement combinations."""
+    pipeline_cfg = config.pipeline_config
+    pipeline_type = pipeline_cfg.type.strip().lower()
+    if pipeline_type not in _SUPPORTED_PIPELINE_TYPES:
+        supported = ", ".join(sorted(_SUPPORTED_PIPELINE_TYPES))
+        raise ValueError(
+            f"unsupported pipeline type {pipeline_type!r}; supported: {supported}"
+        )
+
+    repo = pipeline_cfg.unet_checkpoint_repo
+    ckpt_file = pipeline_cfg.unet_checkpoint_file
+    if (repo is None) ^ (ckpt_file is None):
+        raise ValueError(
+            "unet_checkpoint_repo and unet_checkpoint_file must both be set or omitted"
+        )
+    if pipeline_cfg.uses_lightning_unet() and pipeline_type != "sdxl":
+        raise ValueError("lightning UNet checkpoints require pipeline type sdxl")
+
+    if not refinement_active(config):
+        return
+
+    ref_type = config.refinement_config.type.strip().lower()
+    if pipeline_type == "sd15" and ref_type == "sdxl_refiner":
+        raise ValueError(
+            "sd15 pipelines do not support sdxl_refiner refinement; "
+            "use img2img or disable refinement"
+        )
+    if pipeline_cfg.uses_lightning_unet() and ref_type == "sdxl_refiner":
+        raise ValueError(
+            "lightning UNet checkpoints do not support sdxl_refiner refinement; "
+            "use img2img or disable refinement"
+        )
+
+
+def resolve_aspect_size(
+    aspect_ratio: str,
+    pipeline_type: str = "sdxl",
+) -> tuple[int, int]:
+    normalized_type = str(pipeline_type).strip().lower()
+    sizes = _ASPECT_SIZES_BY_PIPELINE.get(normalized_type)
+    if sizes is None:
+        supported = ", ".join(sorted(_SUPPORTED_PIPELINE_TYPES))
+        raise ValueError(
+            f"unsupported pipeline type {pipeline_type!r}; supported: {supported}"
+        )
+    normalized = str(aspect_ratio).strip()
+    if normalized not in sizes:
+        valid = ", ".join(sorted(sizes))
+        raise ValueError(
+            f"invalid aspect_ratio {aspect_ratio!r} for {normalized_type}; "
+            f"expected one of: {valid}"
+        )
+    return sizes[normalized]
+
+
+def format_positive_prompt(tags: list[str]) -> str:
+    return join_prompt_tags(truncate_tags_to_clip(tags))
+
+
+def format_negative_prompt(tags: list[str]) -> str:
+    return join_prompt_tags(truncate_tags_to_clip(tags))
+
+
+def _scene_filename(scene_number: int, output_cfg: OutputConfig) -> str:
+    return output_cfg.filename_template.format(scene_number=scene_number)
+
+
+def scene_output_path(
+    script_id: UUID | str,
+    scene_number: int,
+    output_cfg: OutputConfig,
+) -> Path:
+    return (
+        resolve_path(output_cfg.script_path)
+        / str(script_id)
+        / output_cfg.output_subdir
+        / _scene_filename(scene_number, output_cfg)
+    )
+
+
+def scene_raw_output_path(
+    script_id: UUID | str,
+    scene_number: int,
+    output_cfg: OutputConfig,
+) -> Path:
+    return (
+        resolve_path(output_cfg.script_path)
+        / str(script_id)
+        / output_cfg.raw_subdir
+        / _scene_filename(scene_number, output_cfg)
+    )
+

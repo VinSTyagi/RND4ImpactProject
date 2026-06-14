@@ -28,13 +28,15 @@ chmod +x scripts/install.sh
 
 ### Options
 
-| Flag | PowerShell | Description |
-|------|------------|-------------|
-| Skip Stability venv | `-SkipStability` | `--skip-stability` |
-| CPU-only PyTorch | `-CpuOnly` | `--cpu-only` |
-| Python version | `-PythonVersion 3.11` | `--python-version 3.11` |
-| Jupyter kernel | `-InstallJupyterKernel` | `--jupyter-kernel` |
-| Optional decord | `-InstallDecord` | `--install-decord` |
+
+| Flag                | PowerShell              | Description             |
+| ------------------- | ----------------------- | ----------------------- |
+| Skip Stability venv | `-SkipStability`        | `--skip-stability`      |
+| CPU-only PyTorch    | `-CpuOnly`              | `--cpu-only`            |
+| Python version      | `-PythonVersion 3.11`   | `--python-version 3.11` |
+| Jupyter kernel      | `-InstallJupyterKernel` | `--jupyter-kernel`      |
+| Optional decord     | `-InstallDecord`        | `--install-decord`      |
+
 
 Example (main stack only, CPU):
 
@@ -44,19 +46,29 @@ Example (main stack only, CPU):
 
 ## Run with Docker (GPU)
 
-vLLM ships compiled CUDA extensions (`vllm._C`) that are **Linux-only**, so the
-`script_setup` pipeline cannot run on native Windows (`ModuleNotFoundError: No
-module named 'vllm._C'`). The Docker image runs the exact same offline
-`vllm.LLM` path inside a Linux GPU container, with the Hugging Face cache and
-`data/` outputs mounted on the host for native-equivalent performance.
+Two separate Docker Compose setups share only the host `data/` folder (pipeline
+artifact handoff). Each stack has its own image, dependency manifest, and Hugging
+Face cache volume (`rnd4impact_script_hf_cache` / `rnd4impact_image_hf_cache`):
+
+
+| Setup                                          | Image                       | Purpose                           |
+| ---------------------------------------------- | --------------------------- | --------------------------------- |
+| `[docker/script_setup/](docker/script_setup/)` | `rnd4impact-script:cuda124` | vLLM script pipeline (stages 1–4) |
+| `[docker/image_setup/](docker/image_setup/)`   | `rnd4impact-image:cuda124`  | SDXL scene image generation       |
+
+
+vLLM ships compiled CUDA extensions (`vllm._C`) that are **Linux-only**, so
+`script_setup` cannot run on native Windows (`ModuleNotFoundError: No module named 'vllm._C'`). Run it in the script_setup container. **image_setup** reads
+`data/<script_id>/script.json` (with `image_prompt` from script_setup stage 4)
+and writes PNGs to `data/<script_id>/images/`.
 
 ### Prerequisites
 
 - **Docker Desktop** with the **WSL2 backend** and GPU support enabled
-  (Settings -> Resources -> WSL integration), or Docker on native Linux.
+(Settings -> Resources -> WSL integration), or Docker on native Linux.
 - A recent **NVIDIA driver** on the host (Windows driver covers WSL2).
 - **NVIDIA Container Toolkit** (installed automatically inside Docker Desktop's
-  WSL2 backend; install manually on native Linux).
+WSL2 backend; install manually on native Linux).
 
 Verify GPU passthrough works:
 
@@ -66,28 +78,58 @@ docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 
 ### Build
 
+**script_setup** (vLLM stack):
+
 ```powershell
-.\scripts\docker-build.ps1
+.\scripts\docker-build-script-setup.ps1
 ```
 
 ```bash
-./scripts/docker-build.sh
+chmod +x scripts/docker-build-script-setup.sh
+./scripts/docker-build-script-setup.sh
 ```
 
-The first build is large (CUDA + the full ML stack) and re-resolves
-dependencies on Linux, so `uv.lock` (resolved on Windows) is intentionally not
-used inside the image. After changing `pyproject.toml` pins (torch, vLLM, etc.),
-rebuild the image so the container picks up the new stack.
+**image_setup** (diffusers / SDXL stack):
 
-### Run pipeline stages
+```powershell
+.\scripts\docker-build-image-setup.ps1
+```
+
+```bash
+chmod +x scripts/docker-build-image-setup.sh
+./scripts/docker-build-image-setup.sh
+```
+
+The first build is large (CUDA + ML stack) and re-resolves dependencies on
+Linux, so `uv.lock` (resolved on Windows) is intentionally not used inside the
+image. Rebuild after changing a module `pyproject.toml` pin.
+
+Each pipeline is isolated: its own `pyproject.toml`, source tree, and Docker
+image. The only cross-pipeline interface is `data/<script_id>/script.json`.
+
+For local development:
+
+```bash
+uv sync --directory src/script_setup      # vLLM script pipeline only
+uv sync --directory src/image_setup       # diffusers image pipeline only
+```
+
+Or sync the whole workspace from the repo root:
+
+```bash
+uv sync
+```
+
+### script_setup — run pipeline stages
 
 The runner takes one flag per stage; combine them freely or use `--all`. All
-stages share one vLLM config (`global_vllm_config` in the YAML). Each selected
-stage loads the engine with that config and tears it down before the next stage
-starts, and stages always run in ascending order.
+stages share one vLLM config (`global_vllm_config` in the YAML).
 
 ```bash
-cd docker
+cd docker/script_setup
+docker compose build
+docker compose run --rm script-setup        # --all (default command)
+# or: ./scripts/docker-run-script-setup.sh --build
 
 # Stage 1 only: idea generation -> data/<script_id>/script.json
 docker compose run --rm script-setup \
@@ -97,59 +139,112 @@ docker compose run --rm script-setup \
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --2
 
-# Stages 1 then 2 (ideas passed in memory, engine reinitialized between stages)
-docker compose run --rm script-setup \
-  python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --1 --2
-
-# All implemented stages (this is the default `script-setup` command)
+# All implemented stages (default `script-setup` command)
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --all
 ```
 
-Stage 1 and stage 2 both read and write `data/<script_id>/script.json` (stage 1 creates scripts with ideas only; stage 2 adds titles). Images and other artifacts live in the same `<script_id>` folder.
-Both are on the host via the bind mount. Running `docker compose run --rm
-script-setup` with no command override executes `--all`.
+Stage 4 writes `image_prompt` fields into `script.json` (text prompts for
+SDXL, not PNGs). Running `docker compose run --rm script-setup` with no command
+override executes `--all`.
 
-### Offline inference and the model cache
-
-Model weights are cached in the `hf_cache` Docker volume, so only the first run
-downloads them. For gated models, copy `docker/.env.example` to `docker/.env`
-and set `HF_TOKEN`. To prefetch weights and then run fully offline:
+**Offline inference and model cache** — copy
+`[docker/script_setup/.env.example](docker/script_setup/.env.example)` to
+`docker/script_setup/.env`, set `HF_TOKEN` if needed, then:
 
 ```bash
-cd docker
-docker compose run --rm prefetch-model      # downloads MODEL into hf_cache
-# set HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1 in docker/.env, then run
+cd docker/script_setup
+docker compose run --rm prefetch-model
+# set HF_HUB_OFFLINE=1 and TRANSFORMERS_OFFLINE=1 in .env, then:
 docker compose run --rm script-setup
 ```
 
-### Other services
+**Other script_setup services:**
 
 ```bash
-cd docker
-docker compose run --rm shell               # interactive GPU shell
-docker compose up jupyter                    # JupyterLab on http://localhost:8888
+cd docker/script_setup
+docker compose run --rm shell
+docker compose up jupyter    # http://localhost:8888
 ```
+
+### image_setup — generate and refine scene images
+
+Run **after** script_setup stage 4 (or `--all`) has populated `image_prompt`
+on every scene in `data/<script_id>/script.json`.
+
+The image_setup runner has two stages (like script_setup):
+
+
+| Stage | Purpose                                             | Output path                                |
+| ----- | --------------------------------------------------- | ------------------------------------------ |
+| **1** | Raw SDXL generation                                 | `data/<script_id>/images_raw/scene_XX.png` |
+| **2** | Refinement (`sdxl_refiner` or `img2img` per config) | `data/<script_id>/images/scene_XX.png`     |
+
+
+Default Docker command runs `--all` (both stages). Turbo config disables
+refinement and writes directly to `images_turbo/`.
+
+Models load from Hugging Face on the first run via diffusers `from_pretrained`
+and are cached in the `rnd4impact_image_hf_cache` Docker volume. Re-runs reuse the
+cache automatically.
+
+```bash
+cd docker/image_setup
+docker compose build
+docker compose run --rm image-setup        # --all (raw + refine)
+# or: ./scripts/docker-run-image-setup.sh --build
+```
+
+Run individual stages:
+
+```bash
+cd docker/image_setup
+# Stage 1 only: raw images -> images_raw/
+docker compose run --rm image-setup \
+  python image_setup/image_setup_runner.py --config configs/image_setup_sdxl_fp16.yaml --1
+
+# Stage 2 only: refine existing raw images -> images/
+docker compose run --rm image-setup \
+  python image_setup/image_setup_runner.py --config configs/image_setup_sdxl_fp16.yaml --2
+```
+
+Low-VRAM SDXL config (img2img refinement on the base model):
+
+```bash
+cd docker/image_setup
+docker compose run --rm image-setup python image_setup/image_setup_runner.py --config configs/image_setup_sdxl_low_vram.yaml --all
+```
+
+Cheaper SD 1.5 config (~4 GB VRAM, img2img refinement on the same base model):
+
+```bash
+cd docker/image_setup
+docker compose run --rm image-setup python image_setup/image_setup_runner.py --config configs/image_setup_sd15.yaml --all
+```
+
+Set `pipeline_config.type` to `sdxl` or `sd15`. SD 1.5 uses 512-based resolutions and
+does not support the SDXL refiner backend.
+
+Copy `[docker/image_setup/.env.example](docker/image_setup/.env.example)` to
+`docker/image_setup/.env` for `HF_TOKEN` and offline flags.
 
 ### Performance notes
 
-- The compose services request all GPUs (`--gpus all`); set
-  `CUDA_VISIBLE_DEVICES` in `docker/.env` to pin a specific GPU.
-- `shm_size: "8gb"` is provided for vLLM; raise it for larger models or batch sizes.
-- Keep the `global_vllm_config` knobs (`gpu_memory_utilization`, `enforce_eager`,
-  `max_model_len`, `quantization`) tuned to your VRAM, e.g.
-  [`src/script_setup/configs/script_setup_qwen3_4b.yaml`](src/script_setup/configs/script_setup_qwen3_4b.yaml).
-- vLLM **0.8.5** loads Qwen3 with the native CUDA backend (no Transformers fallback).
-- Compose sets `VLLM_USE_V1=0` by default. If you see `EngineCore failed to start` /
-  `BackendCompilerFailed` during model load, confirm that variable is `0` and keep
-  `enforce_eager: true` in `global_vllm_config` until V1 + torch.compile is stable on your GPU.
+- Compose services request all GPUs; set `CUDA_VISIBLE_DEVICES` in each setup's
+`.env` to pin a specific GPU.
+- script_setup uses `shm_size: "8gb"` for vLLM; image_setup uses `2gb`.
+- Tune `global_vllm_config` for your VRAM, e.g.
+`[src/script_setup/configs/script_setup_qwen3_4b.yaml](src/script_setup/configs/script_setup_qwen3_4b.yaml)`.
+- script_setup compose sets `VLLM_USE_V1=0` by default.
 
 ## Virtual environments
 
-| Venv | Use for |
-|------|---------|
-| `.venv` | SD 1.5, SDXL, ControlNet, LoRA, xFormers, **SVD**, transformers/BERT/GPT-style NLP, Coqui TTS (Bark + Fairseq models), JupyterLab |
-| `.venv-stability` | Official **SV3D** and **SV4D** ([Stability-AI/generative-models](https://github.com/Stability-AI/generative-models)) |
+
+| Venv              | Use for                                                                                                                           |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `.venv`           | SD 1.5, SDXL, ControlNet, LoRA, xFormers, **SVD**, transformers/BERT/GPT-style NLP, Coqui TTS (Bark + Fairseq models), JupyterLab |
+| `.venv-stability` | Official **SV3D** and **SV4D** ([Stability-AI/generative-models](https://github.com/Stability-AI/generative-models))              |
+
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -180,19 +275,28 @@ Weights are **not** downloaded by the install script. After install, use `huggin
 ## Project layout
 
 ```
-pyproject.toml              # Main dependency manifest (uv)
+pyproject.toml              # uv workspace root (dev tooling)
+docker/
+  script_setup/             # vLLM GPU compose (script pipeline)
+  image_setup/              # SDXL GPU compose (scene images)
 requirements/
   constraints-main.txt      # Torch/xformers pins for install phase A
   stability-pt2.txt         # Stability generative-models deps (stability venv)
 scripts/
-  install.ps1
-  install.sh
+  docker-build-script-setup.ps1 / .sh
+  docker-run-script-setup.ps1 / .sh
+  docker-build-image-setup.ps1 / .sh
+  docker-run-image-setup.ps1 / .sh
+data/                       # Shared pipeline I/O (bind-mounted in Docker)
 vendor/generative-models/   # Cloned by install (gitignored)
-src/rnd4impact/             # Project package
+src/
+  script_setup/             # vLLM script pipeline (+ pyproject.toml)
+  image_setup/              # SDXL image generation (+ pyproject.toml)
 ```
 
-## Optional extras
+## Optional extras (workspace root)
 
 ```powershell
-uv sync --python .venv\Scripts\python.exe --extra sd-extras --extra dev
+uv sync --extra dev
 ```
+
