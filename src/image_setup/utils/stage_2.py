@@ -140,9 +140,7 @@ def run_stage(
                     )
                 else:
                     if not isinstance(image_input, Image.Image):
-                        raise TypeError(
-                            "img2img refinement requires a PIL image input"
-                        )
+                        raise TypeError("img2img refinement requires a PIL image input")
                     refined = diffusion_wrapper.refine_scene_img2img(
                         pipeline,
                         scene["image_prompt"],

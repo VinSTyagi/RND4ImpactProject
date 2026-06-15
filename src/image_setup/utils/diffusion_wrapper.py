@@ -106,7 +106,9 @@ def _resolve_torch_dtype(dtype_name: str) -> torch.dtype:
     key = str(dtype_name).strip().lower()
     if key not in _DTYPE_MAP:
         valid = ", ".join(sorted(_DTYPE_MAP))
-        raise ValueError(f"unsupported torch_dtype {dtype_name!r}; expected one of: {valid}")
+        raise ValueError(
+            f"unsupported torch_dtype {dtype_name!r}; expected one of: {valid}"
+        )
     return _DTYPE_MAP[key]
 
 

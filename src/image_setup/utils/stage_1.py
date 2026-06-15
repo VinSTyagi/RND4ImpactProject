@@ -72,9 +72,8 @@ def run_stage(
     family = diffusion_wrapper.get_pipeline_family(pipeline_type)
     refine = refinement_active(config)
     stages: list[int] = state.get("stages", [1])
-    use_latent_handoff = (
-        family.supports_latent_handoff
-        and _latent_handoff_enabled(config, stages)
+    use_latent_handoff = family.supports_latent_handoff and _latent_handoff_enabled(
+        config, stages
     )
 
     validate_pipeline_config(config)
@@ -122,10 +121,7 @@ def run_stage(
                             )
                             skipped += 1
                             continue
-                        if (
-                            not use_latent_handoff
-                            and raw_path.is_file()
-                        ):
+                        if not use_latent_handoff and raw_path.is_file():
                             logger.info(
                                 "Skipping script %s scene %s (raw exists): %s",
                                 script_id,
@@ -148,9 +144,7 @@ def run_stage(
                         skipped += 1
                         continue
 
-                denoising_end = (
-                    ref_cfg.denoising_end if use_latent_handoff else None
-                )
+                denoising_end = ref_cfg.denoising_end if use_latent_handoff else None
                 output_type = "latent" if use_latent_handoff else "pil"
 
                 result = diffusion_wrapper.generate_scene_image(

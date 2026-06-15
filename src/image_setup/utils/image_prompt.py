@@ -110,7 +110,9 @@ def _truncate_text_to_clip(text: str, max_tokens: int) -> str:
     return cleaned
 
 
-def truncate_tags_to_clip(tags: list[str], max_tokens: int = CLIP_TARGET_TOKENS) -> list[str]:
+def truncate_tags_to_clip(
+    tags: list[str], max_tokens: int = CLIP_TARGET_TOKENS
+) -> list[str]:
     if not tags:
         return tags
 

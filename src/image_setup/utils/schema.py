@@ -619,4 +619,3 @@ def scene_raw_output_path(
         / output_cfg.raw_subdir
         / _scene_filename(scene_number, output_cfg)
     )
-

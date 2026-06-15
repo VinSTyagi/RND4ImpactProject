@@ -4,7 +4,6 @@ import json
 import logging
 import time
 from json import JSONDecodeError
-from typing import Any
 
 from prompts.prompt_reader import load_prompt_md
 from utils.llm_helper import (
