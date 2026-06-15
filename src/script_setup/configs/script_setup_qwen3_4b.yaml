@@ -1,22 +1,21 @@
-# ~6GB VRAM: ~2.7GB weights + ~1.1GB KV @ 8192 ctx (~1.0GB headroom). Thinking needs extra ctx room.
 global_vllm_config:
   model_path: Qwen/Qwen3-4B-AWQ
   quantization: awq_marlin
-  max_tokens: 4096
+  max_tokens: 6144
   temperature: 0.6
   top_p: 0.95
   top_k: 20
   min_p: 0
-  max_model_len: 4096
+  max_model_len: 6144
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.90
   enforce_eager: false
   enable_thinking: true
-  max_num_seqs: 4
-  max_num_batched_tokens: 4096
+  max_num_seqs: 3
+  max_num_batched_tokens: 6144
 
 idea_config:
-  num_ideas: 5
+  num_ideas: 3
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/ # Will accept format of data/{script_id}/script.json
 
@@ -26,7 +25,7 @@ title_config:
   script_path: data/ # Will accept format of data/{script_id}/script.json
 
 scene_config:
-  num_scenes: 5
+  num_scenes: 7
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/ # Will accept format of data/{script_id}/script.json
 

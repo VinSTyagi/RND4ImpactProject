@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-# RND4Impact image_setup GPU image: SDXL inference via diffusers on CUDA 12.4.
+# RND4Impact vid_setup GPU image: SVD / video diffusion via diffusers on CUDA 12.4.
 
 ARG CUDA_VERSION=12.4.1
 ARG UBUNTU_VERSION=22.04
@@ -35,7 +35,7 @@ ENV UV_PROJECT_ENVIRONMENT=/workspace/.venv \
 
 WORKDIR /workspace
 
-COPY src/image_setup/pyproject.toml ./pyproject.toml
+COPY src/vid_setup/pyproject.toml ./pyproject.toml
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-install-project --no-dev
@@ -69,6 +69,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python${PYTHON_VERSION}-venv \
         libgl1 \
         libglib2.0-0 \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \
@@ -77,9 +78,9 @@ ENV PATH="/workspace/.venv/bin:${PATH}" \
 
 COPY --from=builder /workspace/.venv /workspace/.venv
 
-COPY src/image_setup/ /workspace/src/image_setup/
+COPY src/vid_setup/ /workspace/src/vid_setup/
 COPY README.md LICENSE /workspace/
 
 WORKDIR /workspace/src
 
-CMD ["python", "image_setup/image_setup_runner.py", "--config", "configs/image_setup_sdxl_fp16.yaml", "--all"]
+CMD ["python", "vid_setup/vid_setup_runner.py", "--config", "configs/vid_setup_svd.yaml", "--all"]

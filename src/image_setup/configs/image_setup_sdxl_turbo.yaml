@@ -11,6 +11,7 @@ quantization_config:
   enable_vae_slicing: true
   enable_vae_tiling: false
   enable_attention_slicing: false
+  enable_xformers: true
 
 generation_config:
   num_inference_steps: 4

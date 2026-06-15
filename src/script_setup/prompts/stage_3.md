@@ -44,7 +44,7 @@ Example:
 ]
 
 Constraints:
-- Array length must equal the requested scene count
+- Generate as many scenes as the user requests via a scene count (Array length must equal)
 - Raise stakes each scene; climax must confront the protagonist's core flaw
 - Do not repeat the same emotional_beat in consecutive scenes
 - Use concrete details from the input; no empty strings or extra keys

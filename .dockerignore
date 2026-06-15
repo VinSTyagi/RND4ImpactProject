@@ -14,8 +14,7 @@ uv.lock
 # Vendored / cloned trees
 vendor/
 
-# Other pipeline modules (not baked into script_setup / image_setup images)
-src/vid_setup/
+# Other pipeline modules (not baked into script_setup images)
 src/shared/
 src/rnd4impact/
 

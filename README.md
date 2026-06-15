@@ -55,6 +55,7 @@ Face cache volume (`rnd4impact_script_hf_cache` / `rnd4impact_image_hf_cache`):
 | ---------------------------------------------- | --------------------------- | --------------------------------- |
 | `[docker/script_setup/](docker/script_setup/)` | `rnd4impact-script:cuda124` | vLLM script pipeline (stages 1–4) |
 | `[docker/image_setup/](docker/image_setup/)`   | `rnd4impact-image:cuda124`  | SDXL scene image generation       |
+| `[docker/vid_setup/](docker/vid_setup/)`       | `rnd4impact-vid:cuda124`    | Video diffusion (SVD) generation  |
 
 
 vLLM ships compiled CUDA extensions (`vllm._C`) that are **Linux-only**, so
@@ -100,6 +101,17 @@ chmod +x scripts/docker-build-image-setup.sh
 ./scripts/docker-build-image-setup.sh
 ```
 
+**vid_setup** (diffusers / SVD stack — xformers, accelerate, video I/O):
+
+```powershell
+.\scripts\docker-build-vid-setup.ps1
+```
+
+```bash
+chmod +x scripts/docker-build-vid-setup.sh
+./scripts/docker-build-vid-setup.sh
+```
+
 The first build is large (CUDA + ML stack) and re-resolves dependencies on
 Linux, so `uv.lock` (resolved on Windows) is intentionally not used inside the
 image. Rebuild after changing a module `pyproject.toml` pin.
@@ -112,6 +124,7 @@ For local development:
 ```bash
 uv sync --directory src/script_setup      # vLLM script pipeline only
 uv sync --directory src/image_setup       # diffusers image pipeline only
+uv sync --directory src/vid_setup         # diffusers video pipeline only
 ```
 
 Or sync the whole workspace from the repo root:
@@ -279,6 +292,7 @@ pyproject.toml              # uv workspace root (dev tooling)
 docker/
   script_setup/             # vLLM GPU compose (script pipeline)
   image_setup/              # SDXL GPU compose (scene images)
+  vid_setup/                # SVD GPU compose (scene videos)
 requirements/
   constraints-main.txt      # Torch/xformers pins for install phase A
   stability-pt2.txt         # Stability generative-models deps (stability venv)
@@ -287,11 +301,14 @@ scripts/
   docker-run-script-setup.ps1 / .sh
   docker-build-image-setup.ps1 / .sh
   docker-run-image-setup.ps1 / .sh
+  docker-build-vid-setup.ps1 / .sh
+  docker-run-vid-setup.ps1 / .sh
 data/                       # Shared pipeline I/O (bind-mounted in Docker)
 vendor/generative-models/   # Cloned by install (gitignored)
 src/
   script_setup/             # vLLM script pipeline (+ pyproject.toml)
   image_setup/              # SDXL image generation (+ pyproject.toml)
+  vid_setup/                # SVD video generation (+ pyproject.toml)
 ```
 
 ## Optional extras (workspace root)

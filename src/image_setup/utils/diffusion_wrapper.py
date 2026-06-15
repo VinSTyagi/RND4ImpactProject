@@ -20,6 +20,7 @@ from huggingface_hub import hf_hub_download
 from PIL import Image
 from safetensors.torch import load_file
 
+from utils.diffusion_optimizations import apply_quantization_optimizations
 from utils.schema import (
     format_negative_prompt,
     format_positive_prompt,
@@ -197,19 +198,16 @@ def _apply_quantization(
     quant_cfg: QuantizationConfig,
     gen_cfg: GenerationConfig,
 ) -> None:
-    if quant_cfg.enable_sequential_cpu_offload:
-        pipeline.enable_sequential_cpu_offload()
-    elif quant_cfg.enable_model_cpu_offload:
-        pipeline.enable_model_cpu_offload()
-    else:
-        pipeline.to(gen_cfg.device)
-
-    if quant_cfg.enable_vae_slicing:
-        pipeline.enable_vae_slicing()
-    if quant_cfg.enable_vae_tiling:
-        pipeline.enable_vae_tiling()
-    if quant_cfg.enable_attention_slicing:
-        pipeline.enable_attention_slicing("auto")
+    apply_quantization_optimizations(
+        pipeline,
+        enable_model_cpu_offload=quant_cfg.enable_model_cpu_offload,
+        enable_sequential_cpu_offload=quant_cfg.enable_sequential_cpu_offload,
+        enable_vae_slicing=quant_cfg.enable_vae_slicing,
+        enable_vae_tiling=quant_cfg.enable_vae_tiling,
+        enable_attention_slicing=quant_cfg.enable_attention_slicing,
+        enable_xformers=quant_cfg.enable_xformers,
+        device=gen_cfg.device,
+    )
 
 
 def load_txt2img_pipeline(

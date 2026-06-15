@@ -397,6 +397,7 @@ class QuantizationConfig:
     enable_vae_slicing: bool = True
     enable_vae_tiling: bool = False
     enable_attention_slicing: bool = False
+    enable_xformers: bool = True
 
 
 @dataclass
