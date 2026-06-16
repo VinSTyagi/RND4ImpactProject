@@ -3,7 +3,8 @@ video_diffuser_config:
   model_path: Lightricks/LTX-Video-0.9.7-distilled
   variant: null
   scheduler: euler
-  pipeline_class: LTXConditionPipeline
+  ltx_pipeline_class: LTXConditionPipeline
+  device: cuda
 
 quantization_config:
   torch_dtype: float16
@@ -16,15 +17,13 @@ quantization_config:
 
 generation_config:
   num_inference_steps: 8
-  default_guidance_scale: 1.0
-  seed: null
-  device: cuda
   num_frames: 97
   width: 704
   height: 480
-  fps: 24
+  guidance_scale: 1.0
+  frame_rate: 24
   decode_timestep: 0.05
-  image_cond_noise_scale: 0.025
+  decode_noise_scale: 0.025
 
 io_config:
   script_path: data/

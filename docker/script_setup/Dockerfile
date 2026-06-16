@@ -2,6 +2,7 @@
 
 # RND4Impact script_setup GPU image: offline vLLM inference on the pinned
 # CUDA 12.4 / torch 2.6.0 stack so the compiled `vllm._C` extension is present.
+# Dependencies resolve from src/script_setup/pyproject.toml (not the workspace root).
 
 ARG CUDA_VERSION=12.4.1
 ARG UBUNTU_VERSION=22.04
@@ -36,14 +37,19 @@ ENV UV_PROJECT_ENVIRONMENT=/workspace/.venv \
 
 WORKDIR /workspace
 
-COPY src/script_setup/pyproject.toml ./pyproject.toml
+COPY src/script_setup/pyproject.toml src/script_setup/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-install-project --no-dev
+    uv sync --directory src/script_setup --no-install-project --no-dev
 
 RUN set -eux; \
     ls -1 /workspace/.venv/lib/python*/site-packages/vllm/_C*.so; \
-    /workspace/.venv/bin/python -c "import setuptools; import torch; print('setuptools', setuptools.__version__, 'torch', torch.__version__, 'cuda', torch.version.cuda)"
+    /workspace/.venv/bin/python -c "\
+import setuptools; \
+import torch; \
+assert torch.version.cuda, 'expected CUDA-enabled torch from src/script_setup/pyproject.toml'; \
+print('setuptools', setuptools.__version__, 'torch', torch.__version__, 'cuda', torch.version.cuda); \
+"
 
 ############################
 # Stage 2: runtime

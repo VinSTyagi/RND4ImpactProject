@@ -228,3 +228,4 @@ reports/
 uv.lock
 .vscode/
 docs/
+.venv-docker-test

@@ -34,7 +34,7 @@ services:
       - python
       - image_setup/image_setup_runner.py
       - --config
-      - configs/image_setup_ssd1b_low_vram.yaml
+      - configs/image_setup_sdxl_lightning_16step.yaml
       - --all
 
   shell:

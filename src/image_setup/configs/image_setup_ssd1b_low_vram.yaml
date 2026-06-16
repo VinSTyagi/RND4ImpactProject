@@ -19,6 +19,8 @@ generation_config:
   default_guidance_scale: 7.5
   seed: null
   device: cuda
+  width: 1024
+  height: 576
 
 refinement_config:
   enabled: true

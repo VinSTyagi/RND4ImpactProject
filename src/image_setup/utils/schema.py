@@ -406,6 +406,8 @@ class GenerationConfig:
     default_guidance_scale: float = 7.5
     seed: int | None = None
     device: str = "cuda"
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass
@@ -561,6 +563,15 @@ def validate_pipeline_config(config: ImageSetupPipelineConfig) -> None:
             "use img2img or disable refinement"
         )
 
+    width = config.generation_config.width
+    height = config.generation_config.height
+    if (width is None) ^ (height is None):
+        raise ValueError(
+            "generation_config width and height must both be set or both omitted"
+        )
+    if width is not None and height is not None:
+        _validate_resolution(width, height)
+
 
 def resolve_aspect_size(
     aspect_ratio: str,
@@ -581,6 +592,31 @@ def resolve_aspect_size(
             f"expected one of: {valid}"
         )
     return sizes[normalized]
+
+
+def _validate_resolution(width: int, height: int) -> None:
+    if width <= 0 or height <= 0:
+        raise ValueError(f"width and height must be positive, got {width}x{height}")
+    if width % 8 != 0 or height % 8 != 0:
+        raise ValueError(
+            f"width and height must be multiples of 8, got {width}x{height}"
+        )
+
+
+def resolve_generation_size(
+    image_prompt: ImagePrompt,
+    pipeline_type: str,
+    gen_cfg: GenerationConfig,
+) -> tuple[int, int]:
+    """Return output size from generation_config or fall back to scene aspect_ratio."""
+    if gen_cfg.width is None and gen_cfg.height is None:
+        return resolve_aspect_size(image_prompt["aspect_ratio"], pipeline_type)
+    if gen_cfg.width is None or gen_cfg.height is None:
+        raise ValueError(
+            "generation_config width and height must both be set when overriding "
+            "scene aspect_ratio"
+        )
+    return int(gen_cfg.width), int(gen_cfg.height)
 
 
 def format_positive_prompt(tags: list[str]) -> str:

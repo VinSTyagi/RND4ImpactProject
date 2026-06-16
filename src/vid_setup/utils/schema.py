@@ -9,20 +9,13 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_ROOT = Path(__file__).resolve().parents[2]
 
-_SUPPORTED_PIPELINE_TYPES = frozenset({"svd", "ltx", "animatediff"})
-_SUPPORTED_ANIMATEDIFF_BASES = frozenset({"sd15", "sdxl"})
+_SUPPORTED_PIPELINE_TYPES = frozenset({"svd", "ltx"})
 _SUPPORTED_UPSCALE_TYPES = frozenset({"none", "ltx_latent"})
 
 # Diffusers pipeline classes used by the wrapper for each backend type.
 _PIPELINE_CLASS_BY_TYPE: dict[str, str] = {
     "svd": "StableVideoDiffusionPipeline",
     "ltx": "LTXImageToVideoPipeline",
-    "animatediff": "AnimateDiffPipeline",
-}
-
-_ANIMATEDIFF_PIPELINE_BY_BASE: dict[str, str] = {
-    "sd15": "AnimateDiffPipeline",
-    "sdxl": "AnimateDiffSDXLPipeline",
 }
 
 
@@ -44,42 +37,60 @@ def _path_if_exists(path: Path) -> Path | None:
     return path if path.exists() else None
 
 
+_SVD_GENERATION_FIELDS = frozenset({
+    "min_guidance_scale",
+    "max_guidance_scale",
+    "fps",
+    "motion_bucket_id",
+    "noise_aug_strength",
+    "decode_chunk_size",
+})
+_LTX_GENERATION_FIELDS = frozenset({
+    "guidance_scale",
+    "frame_rate",
+    "decode_timestep",
+    "decode_noise_scale",
+})
+
+
 @dataclass
 class VideoDiffuserConfig:
     """Diffusers model initialization (``from_pretrained``) settings."""
-
+    device: str
     type: str = "svd"
     model_path: str = "stabilityai/stable-video-diffusion-img2vid"
-    variant: str | None = "fp16"
-    revision: str | None = None
-    scheduler: str = "euler"
-    # AnimateDiff: motion module + SD/SDXL base checkpoint at model_path.
-    motion_adapter_path: str | None = None
-    base_pipeline: str | None = None
-    # Optional explicit diffusers class override (e.g. LTXConditionPipeline).
-    pipeline_class: str | None = None
+    torch_dtype: str = "float16"
+    variant: str = "fp16"
 
     def normalized_type(self) -> str:
         return self.type.strip().lower()
 
-    def resolved_pipeline_class(self) -> str:
-        if self.pipeline_class:
-            return self.pipeline_class.strip()
-        pipeline_type = self.normalized_type()
-        if pipeline_type == "animatediff":
-            base = (self.base_pipeline or "sd15").strip().lower()
-            return _ANIMATEDIFF_PIPELINE_BY_BASE.get(
-                base, _PIPELINE_CLASS_BY_TYPE["animatediff"]
-            )
-        return _PIPELINE_CLASS_BY_TYPE.get(
-            pipeline_type, _PIPELINE_CLASS_BY_TYPE["svd"]
-        )
+
+@dataclass
+class GenerationConfig:
+    num_inference_steps: int
+    num_frames: int
+    width: int
+    height: int
+
+    # SVD-specific (optional)
+    min_guidance_scale: float | None = None
+    max_guidance_scale: float | None = None
+    fps: int | None = None
+    motion_bucket_id: int | None = None
+    noise_aug_strength: float | None = None
+    decode_chunk_size: int | None = None
+
+    # LTX-specific (optional)
+    guidance_scale: float | None = None
+    frame_rate: int | None = None
+    decode_timestep: float | None = None
+    decode_noise_scale: float | None = None
 
 
 @dataclass
 class QuantizationConfig:
     """Memory and throughput optimizations applied after pipeline load."""
-
     torch_dtype: str = "float16"
     enable_model_cpu_offload: bool = False
     enable_sequential_cpu_offload: bool = False
@@ -89,36 +100,9 @@ class QuantizationConfig:
     enable_xformers: bool = True
     unet_enable_forward_chunking: bool = False
 
-
-@dataclass
-class GenerationConfig:
-    """Default inference kwargs for the video pipeline (images supplied at runtime)."""
-
-    num_inference_steps: int = 25
-    default_guidance_scale: float = 1.0
-    min_guidance_scale: float = 1.0
-    max_guidance_scale: float = 1.0
-    seed: int | None = None
-    device: str = "cuda"
-    num_frames: int = 25
-    width: int | None = None
-    height: int | None = None
-    fps: int = 7
-    # SVD micro-conditioning
-    motion_bucket_id: int = 127
-    noise_aug_strength: float = 0.02
-    decode_chunk_size: int = 8
-    # LTX decode / conditioning
-    decode_timestep: float = 0.05
-    image_cond_noise_scale: float = 0.025
-    # AnimateDiff
-    animatediff_decode_chunk_size: int = 16
-
-
 @dataclass
 class InputOutputConfig:
     """Script-relative paths for scene images and generated videos."""
-
     script_path: str = "data/"
     input_subdir: str = "refined_images"
     image_template: str = "scene_{scene_number:02d}.png"
@@ -132,7 +116,6 @@ class InputOutputConfig:
 @dataclass
 class UpscaleConfig:
     """Optional post-generation video upscaling (separate diffusers pipeline)."""
-
     enabled: bool = False
     type: str = "none"
     model_path: str = "Lightricks/ltxv-spatial-upscaler-0.9.7"
@@ -144,11 +127,9 @@ class UpscaleConfig:
 
 @dataclass
 class VidSetupPipelineConfig:
-    video_diffuser_config: VideoDiffuserConfig = field(
-        default_factory=VideoDiffuserConfig
-    )
+    video_diffuser_config: VideoDiffuserConfig
+    generation_config: GenerationConfig
     quantization_config: QuantizationConfig = field(default_factory=QuantizationConfig)
-    generation_config: GenerationConfig = field(default_factory=GenerationConfig)
     io_config: InputOutputConfig = field(default_factory=InputOutputConfig)
     upscale_config: UpscaleConfig = field(default_factory=UpscaleConfig)
 
@@ -238,7 +219,7 @@ def _io_section(data: dict[str, Any]) -> dict[str, Any]:
 
 def load_config(path: str) -> VidSetupPipelineConfig:
     data = _load_yaml(path)
-    return VidSetupPipelineConfig(
+    config = VidSetupPipelineConfig(
         video_diffuser_config=VideoDiffuserConfig(
             **_dataclass_kwargs(
                 VideoDiffuserConfig, _section(data, "video_diffuser_config")
@@ -259,6 +240,34 @@ def load_config(path: str) -> VidSetupPipelineConfig:
             **_dataclass_kwargs(UpscaleConfig, _section(data, "upscale_config"))
         ),
     )
+    validate_pipeline_config(config)
+    return config
+
+
+def validate_generation_config(pipeline_type: str, gen_cfg: GenerationConfig) -> None:
+    """Reject pipeline-specific generation fields on the wrong backend."""
+    if pipeline_type == "svd":
+        if (
+            gen_cfg.max_guidance_scale is not None
+            and gen_cfg.max_guidance_scale > 3.0
+        ):
+            raise ValueError(
+                "svd pipelines expect max_guidance_scale <= 3.0 "
+                f"(got {gen_cfg.max_guidance_scale})"
+            )
+        for name in _LTX_GENERATION_FIELDS:
+            if getattr(gen_cfg, name) is not None:
+                raise ValueError(
+                    f"svd generation_config must not set ltx-only field {name!r}"
+                )
+        return
+
+    if pipeline_type == "ltx":
+        for name in _SVD_GENERATION_FIELDS:
+            if getattr(gen_cfg, name) is not None:
+                raise ValueError(
+                    f"ltx generation_config must not set svd-only field {name!r}"
+                )
 
 
 def validate_pipeline_config(config: VidSetupPipelineConfig) -> None:
@@ -271,25 +280,7 @@ def validate_pipeline_config(config: VidSetupPipelineConfig) -> None:
             f"unsupported video pipeline type {pipeline_type!r}; supported: {supported}"
         )
 
-    if pipeline_type == "animatediff":
-        if not video_cfg.motion_adapter_path:
-            raise ValueError(
-                "animatediff requires motion_adapter_path in video_diffuser_config"
-            )
-        base = (video_cfg.base_pipeline or "sd15").strip().lower()
-        if base not in _SUPPORTED_ANIMATEDIFF_BASES:
-            supported = ", ".join(sorted(_SUPPORTED_ANIMATEDIFF_BASES))
-            raise ValueError(
-                f"unsupported animatediff base_pipeline {base!r}; supported: {supported}"
-            )
-
-    if pipeline_type == "svd":
-        gen_cfg = config.generation_config
-        if gen_cfg.default_guidance_scale > 3.0:
-            raise ValueError(
-                "svd pipelines expect default_guidance_scale <= 3.0 "
-                f"(got {gen_cfg.default_guidance_scale})"
-            )
+    validate_generation_config(pipeline_type, config.generation_config)
 
     if (
         pipeline_type == "ltx"
@@ -324,54 +315,6 @@ def _scene_video_filename(scene_number: int, io_cfg: InputOutputConfig) -> str:
     return io_cfg.video_template.format(scene_number=scene_number)
 
 
-def scene_image_path(
-    script_id: UUID | str,
-    scene_number: int,
-    io_cfg: InputOutputConfig,
-) -> Path | None:
-    base = resolve_path(io_cfg.script_path)
-    if base is None:
-        return None
-    return _path_if_exists(
-        base
-        / str(script_id)
-        / io_cfg.input_subdir
-        / _scene_image_filename(scene_number, io_cfg)
-    )
-
-
-def scene_raw_video_path(
-    script_id: UUID | str,
-    scene_number: int,
-    io_cfg: InputOutputConfig,
-) -> Path | None:
-    base = resolve_path(io_cfg.script_path)
-    if base is None:
-        return None
-    return _path_if_exists(
-        base
-        / str(script_id)
-        / io_cfg.raw_videos_subdir
-        / _scene_video_filename(scene_number, io_cfg)
-    )
-
-
-def scene_refined_video_path(
-    script_id: UUID | str,
-    scene_number: int,
-    io_cfg: InputOutputConfig,
-) -> Path | None:
-    base = resolve_path(io_cfg.script_path)
-    if base is None:
-        return None
-    return _path_if_exists(
-        base
-        / str(script_id)
-        / io_cfg.refined_videos_subdir
-        / _scene_video_filename(scene_number, io_cfg)
-    )
-
-
 def _resolve_path(rel: str) -> Path:
     """Resolve config paths without requiring the path to exist."""
     path = Path(rel)
@@ -383,55 +326,61 @@ def _resolve_path(rel: str) -> Path:
     return _SRC_ROOT / path
 
 
+@dataclass(frozen=True)
+class ScenePaths:
+    image: Path
+    raw_video: Path
+    refined_video: Path
+
+
+def scene_paths(
+    script_id: UUID | str,
+    scene_number: int,
+    io_cfg: InputOutputConfig,
+) -> ScenePaths:
+    """Resolved image, raw-video, and refined-video paths for one scene."""
+    base = _resolve_path(io_cfg.script_path) / str(script_id)
+    return ScenePaths(
+        image=base / io_cfg.input_subdir / _scene_image_filename(scene_number, io_cfg),
+        raw_video=base
+        / io_cfg.raw_videos_subdir
+        / _scene_video_filename(scene_number, io_cfg),
+        refined_video=base
+        / io_cfg.refined_videos_subdir
+        / _scene_video_filename(scene_number, io_cfg),
+    )
+
+
 def script_base_path(io_cfg: InputOutputConfig) -> Path | None:
     base = _resolve_path(io_cfg.script_path)
     return base if base.is_dir() else None
 
 
-def scene_raw_video_output_path(
+def scene_paths_for_script(
     script_id: UUID | str,
-    scene_number: int,
     io_cfg: InputOutputConfig,
-) -> Path:
-    return (
-        _resolve_path(io_cfg.script_path)
-        / str(script_id)
-        / io_cfg.raw_videos_subdir
-        / _scene_video_filename(scene_number, io_cfg)
-    )
-
-
-def scene_refined_video_output_path(
-    script_id: UUID | str,
-    scene_number: int,
-    io_cfg: InputOutputConfig,
-) -> Path:
-    return (
-        _resolve_path(io_cfg.script_path)
-        / str(script_id)
-        / io_cfg.refined_videos_subdir
-        / _scene_video_filename(scene_number, io_cfg)
-    )
-
-
-def load_images(script_id: UUID | str, io_config: InputOutputConfig) -> list[Path]:
-    results: list[Path] = []
-    scene_number = 1
+) -> list[ScenePaths]:
+    """All scene paths for one script, in scene order."""
+    results: list[ScenePaths] = []
+    scene_number = 0
     while True:
-        path = scene_image_path(script_id, scene_number, io_config)
-        if path is None:
+        paths = scene_paths(script_id, scene_number, io_cfg)
+        if not paths.image.exists():
             break
-        results.append(path)
+        results.append(paths)
         scene_number += 1
     return results
 
 
-def get_uuids(io_config: InputOutputConfig) -> list[str]:
-    base = script_base_path(io_config)
+def scene_paths_by_script(
+    io_cfg: InputOutputConfig,
+) -> dict[str, list[ScenePaths]]:
+    """Map each script UUID under ``io_cfg.script_path`` to its scene paths."""
+    base = script_base_path(io_cfg)
     if base is None:
-        return []
+        return {}
 
-    result: list[str] = []
+    result: dict[str, list[ScenePaths]] = {}
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
@@ -439,5 +388,7 @@ def get_uuids(io_config: InputOutputConfig) -> list[str]:
             UUID(entry.name)
         except ValueError:
             continue
-        result.append(entry.name)
+        scenes = scene_paths_for_script(entry.name, io_cfg)
+        if scenes:
+            result[entry.name] = scenes
     return result

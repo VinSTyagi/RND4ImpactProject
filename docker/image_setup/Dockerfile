@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # RND4Impact image_setup GPU image: SDXL inference via diffusers on CUDA 12.4.
+# Dependencies resolve from src/image_setup/pyproject.toml (not the workspace root).
 
 ARG CUDA_VERSION=12.4.1
 ARG UBUNTU_VERSION=22.04
@@ -35,10 +36,10 @@ ENV UV_PROJECT_ENVIRONMENT=/workspace/.venv \
 
 WORKDIR /workspace
 
-COPY src/image_setup/pyproject.toml ./pyproject.toml
+COPY src/image_setup/pyproject.toml src/image_setup/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-install-project --no-dev
+    uv sync --directory src/image_setup --no-install-project --no-dev
 
 RUN set -eux; \
     /workspace/.venv/bin/python -c "\
@@ -47,6 +48,7 @@ import diffusers; \
 import setuptools; \
 import torch; \
 import xformers; \
+assert torch.version.cuda, 'expected CUDA-enabled torch from src/image_setup/pyproject.toml'; \
 print('setuptools', setuptools.__version__); \
 print('torch', torch.__version__, 'cuda', torch.version.cuda); \
 print('xformers', xformers.__version__); \

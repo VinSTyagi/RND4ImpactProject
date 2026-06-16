@@ -1,35 +1,37 @@
-# SDXL base + ByteDance Lightning 4-step UNet. Uses StableDiffusionXLPipeline.
-# Fast SDXL-class generation; refinement disabled (distilled single-pass output).
+# SDXL base + ByteDance Lightning 8-step UNet. Uses StableDiffusionXLPipeline.
+# Better quality than 4-step Lightning with still-fast generation.
 pipeline_config:
   type: sdxl
   model_path: stabilityai/stable-diffusion-xl-base-1.0
   variant: fp16
   scheduler: default
-  unet_checkpoint_repo: ByteDance/SDXL-Lightning
-  unet_checkpoint_file: sdxl_lightning_4step_unet.safetensors
+  # unet_checkpoint_repo: ByteDance/SDXL-Lightning
+  # unet_checkpoint_file: sdxl_lightning_16step_unet.safetensors
 
 quantization_config:
   torch_dtype: float16
-  enable_model_cpu_offload: false
-  enable_sequential_cpu_offload: false
+  enable_model_cpu_offload: true
+  enable_sequential_cpu_offload: true
   enable_vae_slicing: true
-  enable_vae_tiling: false
-  enable_attention_slicing: false
+  enable_vae_tiling: true
+  enable_attention_slicing: true
   enable_xformers: true
 
 generation_config:
-  num_inference_steps: 4
+  num_inference_steps: 16
   default_guidance_scale: 0.0
   seed: null
   device: cuda
+  width: 1344
+  height: 768
 
 refinement_config:
-  enabled: false
-  type: none
+  enabled: true
+  type: sdxl_refiner
   model_path: stabilityai/stable-diffusion-xl-refiner-1.0
   variant: fp16
   scheduler: default
-  num_inference_steps: 4
+  num_inference_steps: 8
   denoising_start: 0.8
   denoising_end: 0.8
   strength: 0.35

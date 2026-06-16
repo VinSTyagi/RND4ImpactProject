@@ -25,7 +25,7 @@ from utils.schema import (
     format_negative_prompt,
     format_positive_prompt,
     parse_cfg_scale,
-    resolve_aspect_size,
+    resolve_generation_size,
 )
 
 if TYPE_CHECKING:
@@ -321,10 +321,11 @@ def _resolve_generator(device: str, gen_cfg: GenerationConfig, seed_offset: int)
 def _prompt_bundle(
     image_prompt: ImagePrompt,
     pipeline_type: str,
+    gen_cfg: GenerationConfig,
 ) -> tuple[str, str, int, int]:
     positive = format_positive_prompt(image_prompt["positive_prompt"])
     negative = format_negative_prompt(image_prompt["negative_prompt"])
-    width, height = resolve_aspect_size(image_prompt["aspect_ratio"], pipeline_type)
+    width, height = resolve_generation_size(image_prompt, pipeline_type, gen_cfg)
     return positive, negative, width, height
 
 
@@ -340,7 +341,9 @@ def generate_scene_image(
     denoising_end: float | None = None,
 ) -> Image.Image | torch.Tensor:
     family = get_pipeline_family(pipeline_type)
-    positive, negative, width, height = _prompt_bundle(image_prompt, pipeline_type)
+    positive, negative, width, height = _prompt_bundle(
+        image_prompt, pipeline_type, gen_cfg
+    )
     guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
     generator, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
 
@@ -386,7 +389,7 @@ def refine_scene_sdxl_refiner(
     image: Image.Image | torch.Tensor,
     seed_offset: int = 0,
 ) -> Image.Image:
-    positive, negative, _, _ = _prompt_bundle(image_prompt, "sdxl")
+    positive, negative, _, _ = _prompt_bundle(image_prompt, "sdxl", gen_cfg)
     guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
     _, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
 
@@ -420,7 +423,7 @@ def refine_scene_img2img(
     image: Image.Image,
     seed_offset: int = 0,
 ) -> Image.Image:
-    positive, negative, _, _ = _prompt_bundle(image_prompt, pipeline_type)
+    positive, negative, _, _ = _prompt_bundle(image_prompt, pipeline_type, gen_cfg)
     guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
     _, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
 

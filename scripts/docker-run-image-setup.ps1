@@ -1,7 +1,7 @@
 # Build (optional) and run image_setup in Docker.
 param(
     [switch]$Build,
-    [string]$Config = "configs/image_setup_sdxl_fp16.yaml",
+    [string]$Config = "configs/image_setup_sdxl_lightning_16step.yaml",
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RunnerArgs
 )

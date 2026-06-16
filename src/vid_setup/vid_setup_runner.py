@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from utils import stage_1, stage_2
-from utils.schema import VidSetupPipelineConfig, load_config, validate_pipeline_config
+from utils import stage_1
+from utils.schema import VidSetupPipelineConfig, load_config
 
 _VID_SETUP_DIR = Path(__file__).resolve().parent
 _DEFAULT_CONFIG = Path("configs/vid_setup_svd.yaml")
@@ -18,7 +18,6 @@ StageRunner = Callable[[logging.Logger, VidSetupPipelineConfig, dict], dict]
 
 STAGES: dict[int, StageRunner] = {
     1: stage_1.run_stage,
-    2: stage_2.run_stage,
 }
 
 
@@ -54,12 +53,9 @@ def  resolve_stages(
 def build_parser() -> argparse.ArgumentParser:
     """_summary_
     Generates a argument parser used to ingest arguments and modify flow of code
-    
-    Returns:
-        argparse.ArgumentParser: _description_
     """
     parser = argparse.ArgumentParser(
-        description="Generate scene videos from refined images (SVD / LTX / AnimateDiff).",
+        description="Generate scene videos from refined images (SVD / LTX).",
     )
     parser.add_argument(
         "--config",
@@ -72,10 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"--{n}",
             dest=f"stage_{n}",
             action="store_true",
-            help=(
-                f"Run stage {n} "
-                f"({'raw video generation' if n == 1 else 'video upscaling'})"
-            ),
+            help="Run stage 1 (raw video generation)",
         )
     parser.add_argument(
         "--all",
@@ -98,10 +91,11 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    # Load in the pipeline configs, referenced in schema.py
     pipeline_config = load_config(str(args.config))
-    validate_pipeline_config(pipeline_config)
     logger.info("Loaded config from %s", args.config)
 
+    # Map CLI stage flags to stage_1.run_stage
     stages = resolve_stages(args, parser)
     if not stages:
         flags = ", ".join(f"--{n}" for n in sorted(STAGES))
@@ -111,18 +105,16 @@ def main() -> None:
     state: dict = {"stages": stages}
     summaries: dict[str, int] = {}
 
+    # Each state provides a summary of the workflow
     for n in stages:
         logger.info("=== Stage %s ===", n)
         summaries.update(STAGES[n](logger, pipeline_config, state))
 
     logger.info(
-        "Done: %s script(s), %s raw written, %s raw skipped, "
-        "%s refined written, %s refined skipped",
+        "Done: %s script(s), %s raw written, %s raw skipped",
         summaries.get("scripts", 0),
         summaries.get("raw_written", 0),
         summaries.get("raw_skipped", 0),
-        summaries.get("refined_written", 0),
-        summaries.get("refined_skipped", 0),
     )
 
 
