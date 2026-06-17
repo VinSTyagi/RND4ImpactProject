@@ -2,17 +2,17 @@ video_diffuser_config:
   type: svd
   model_path: stabilityai/stable-video-diffusion-img2vid
   variant: fp16
-  scheduler: euler
   device: cuda
 
 quantization_config:
   torch_dtype: float16
-  enable_model_cpu_offload: true
   enable_sequential_cpu_offload: true
+  enable_model_cpu_offload: false
   enable_vae_slicing: true
   enable_vae_tiling: true
   enable_attention_slicing: true
-  enable_xformers: true
+  enable_xformers: false
+  unet_enable_forward_chunking: true
 
 generation_config:
   num_inference_steps: 25

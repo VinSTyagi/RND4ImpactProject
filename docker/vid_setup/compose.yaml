@@ -23,6 +23,7 @@ x-common: &common
     HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
     HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
     TRANSFORMERS_OFFLINE: ${TRANSFORMERS_OFFLINE:-0}
+    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
   volumes:
     - ../../data:/workspace/data
     - hf_cache:/root/.cache/huggingface
@@ -34,7 +35,7 @@ services:
       - python
       - vid_setup/vid_setup_runner.py
       - --config
-      - configs/vid_setup_svd.yaml
+      - configs/vid_setup_svd_low_vram.yaml
       - --all
 
   shell:

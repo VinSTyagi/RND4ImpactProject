@@ -1,13 +1,13 @@
+# ~6GB VRAM: SANA-Video 2B 480p with sequential CPU offload.
 video_diffuser_config:
-  type: ltx
-  model_path: oxide-lab/LTX-Video-0.9.8-2B-distilled
+  type: sana
+  model_path: Efficient-Large-Model/SANA-Video_2B_480p_diffusers
   variant: null
   device: cuda
 
 quantization_config:
   torch_dtype: bfloat16
-  enable_group_offload: true
-  enable_sequential_cpu_offload: false
+  enable_sequential_cpu_offload: true
   enable_model_cpu_offload: false
   enable_vae_slicing: true
   enable_vae_tiling: true
@@ -15,16 +15,15 @@ quantization_config:
   enable_xformers: false
 
 generation_config:
-  num_inference_steps: 16
-  num_frames: 14
-  width: 768
-  height: 432
-  frame_rate: 7
-  guidance_scale: 1.0
-  decode_timestep: 0.05
-  decode_noise_scale: 0.025
+  num_inference_steps: 25
+  num_frames: 17
+  width: 416
+  height: 240
+  frame_rate: 8
+  guidance_scale: 6.0
+  use_resolution_binning: true
   prompt: "cinematic motion, smooth natural movement, high quality"
-  negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
+  negative_prompt: "blurry, jittery, distorted, watermark, text, inconsistent motion"
 
 io_config:
   script_path: data/

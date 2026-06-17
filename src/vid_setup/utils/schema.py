@@ -9,13 +9,17 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_ROOT = Path(__file__).resolve().parents[2]
 
-_SUPPORTED_PIPELINE_TYPES = frozenset({"svd", "ltx"})
+_SUPPORTED_PIPELINE_TYPES = frozenset({"svd", "ltx", "sana", "cogvideox", "wan"})
 _SUPPORTED_UPSCALE_TYPES = frozenset({"none", "ltx_latent"})
+_PROMPTED_PIPELINE_TYPES = frozenset({"ltx", "sana", "cogvideox", "wan"})
 
 # Diffusers pipeline classes used by the wrapper for each backend type.
 _PIPELINE_CLASS_BY_TYPE: dict[str, str] = {
     "svd": "StableVideoDiffusionPipeline",
     "ltx": "LTXImageToVideoPipeline",
+    "sana": "SanaImageToVideoPipeline",
+    "cogvideox": "CogVideoXImageToVideoPipeline",
+    "wan": "WanImageToVideoPipeline",
 }
 
 
@@ -37,25 +41,73 @@ def _path_if_exists(path: Path) -> Path | None:
     return path if path.exists() else None
 
 
-_SVD_GENERATION_FIELDS = frozenset({
-    "min_guidance_scale",
-    "max_guidance_scale",
-    "fps",
-    "motion_bucket_id",
-    "noise_aug_strength",
-    "decode_chunk_size",
-})
-_LTX_GENERATION_FIELDS = frozenset({
-    "guidance_scale",
-    "frame_rate",
-    "decode_timestep",
-    "decode_noise_scale",
-})
+_SVD_GENERATION_FIELDS = frozenset(
+    {
+        "min_guidance_scale",
+        "max_guidance_scale",
+        "fps",
+        "motion_bucket_id",
+        "noise_aug_strength",
+        "decode_chunk_size",
+    }
+)
+_LTX_GENERATION_FIELDS = frozenset(
+    {
+        "guidance_scale",
+        "frame_rate",
+        "decode_timestep",
+        "decode_noise_scale",
+        "prompt",
+        "negative_prompt",
+    }
+)
+_SANA_GENERATION_FIELDS = frozenset(
+    {
+        "guidance_scale",
+        "frame_rate",
+        "prompt",
+        "negative_prompt",
+        "use_resolution_binning",
+    }
+)
+_COGVIDEOX_GENERATION_FIELDS = frozenset(
+    {
+        "guidance_scale",
+        "frame_rate",
+        "prompt",
+        "negative_prompt",
+        "use_dynamic_cfg",
+    }
+)
+_WAN_GENERATION_FIELDS = frozenset(
+    {
+        "guidance_scale",
+        "frame_rate",
+        "prompt",
+        "negative_prompt",
+    }
+)
+
+_SHARED_GENERATION_FIELDS = frozenset(
+    {
+        "num_inference_steps",
+        "num_frames",
+    }
+)
+
+_GENERATION_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
+    "svd": _SHARED_GENERATION_FIELDS | _SVD_GENERATION_FIELDS,
+    "ltx": _SHARED_GENERATION_FIELDS | _LTX_GENERATION_FIELDS,
+    "sana": _SHARED_GENERATION_FIELDS | _SANA_GENERATION_FIELDS,
+    "cogvideox": _SHARED_GENERATION_FIELDS | _COGVIDEOX_GENERATION_FIELDS,
+    "wan": _SHARED_GENERATION_FIELDS | _WAN_GENERATION_FIELDS,
+}
 
 
 @dataclass
 class VideoDiffuserConfig:
     """Diffusers model initialization (``from_pretrained``) settings."""
+
     device: str
     type: str = "svd"
     model_path: str = "stabilityai/stable-video-diffusion-img2vid"
@@ -86,11 +138,24 @@ class GenerationConfig:
     frame_rate: int | None = None
     decode_timestep: float | None = None
     decode_noise_scale: float | None = None
+    prompt: str | None = None
+    negative_prompt: str | None = None
+
+    # Sana-specific (optional)
+    use_resolution_binning: bool | None = None
+
+    # CogVideoX-specific (optional)
+    use_dynamic_cfg: bool | None = None
+
+
+def pipeline_needs_prompt(pipeline_type: str) -> bool:
+    return pipeline_type.strip().lower() in _PROMPTED_PIPELINE_TYPES
 
 
 @dataclass
 class QuantizationConfig:
     """Memory and throughput optimizations applied after pipeline load."""
+
     torch_dtype: str = "float16"
     enable_model_cpu_offload: bool = False
     enable_sequential_cpu_offload: bool = False
@@ -99,10 +164,13 @@ class QuantizationConfig:
     enable_attention_slicing: bool = False
     enable_xformers: bool = True
     unet_enable_forward_chunking: bool = False
+    enable_group_offload: bool = False
+
 
 @dataclass
 class InputOutputConfig:
     """Script-relative paths for scene images and generated videos."""
+
     script_path: str = "data/"
     input_subdir: str = "refined_images"
     image_template: str = "scene_{scene_number:02d}.png"
@@ -116,6 +184,7 @@ class InputOutputConfig:
 @dataclass
 class UpscaleConfig:
     """Optional post-generation video upscaling (separate diffusers pipeline)."""
+
     enabled: bool = False
     type: str = "none"
     model_path: str = "Lightricks/ltxv-spatial-upscaler-0.9.7"
@@ -246,28 +315,27 @@ def load_config(path: str) -> VidSetupPipelineConfig:
 
 def validate_generation_config(pipeline_type: str, gen_cfg: GenerationConfig) -> None:
     """Reject pipeline-specific generation fields on the wrong backend."""
-    if pipeline_type == "svd":
-        if (
-            gen_cfg.max_guidance_scale is not None
-            and gen_cfg.max_guidance_scale > 3.0
-        ):
-            raise ValueError(
-                "svd pipelines expect max_guidance_scale <= 3.0 "
-                f"(got {gen_cfg.max_guidance_scale})"
-            )
-        for name in _LTX_GENERATION_FIELDS:
-            if getattr(gen_cfg, name) is not None:
-                raise ValueError(
-                    f"svd generation_config must not set ltx-only field {name!r}"
-                )
-        return
+    normalized = pipeline_type.strip().lower()
+    allowed = _GENERATION_FIELDS_BY_TYPE.get(normalized)
+    if allowed is None:
+        raise ValueError(f"unsupported pipeline type {pipeline_type!r}")
 
-    if pipeline_type == "ltx":
-        for name in _SVD_GENERATION_FIELDS:
-            if getattr(gen_cfg, name) is not None:
-                raise ValueError(
-                    f"ltx generation_config must not set svd-only field {name!r}"
-                )
+    if normalized == "svd" and (
+        gen_cfg.max_guidance_scale is not None and gen_cfg.max_guidance_scale > 3.0
+    ):
+        raise ValueError(
+            "svd pipelines expect max_guidance_scale <= 3.0 "
+            f"(got {gen_cfg.max_guidance_scale})"
+        )
+
+    for name, value in gen_cfg.__dict__.items():
+        if name in {"width", "height"} or value is None:
+            continue
+        if name not in allowed:
+            raise ValueError(
+                f"{normalized} generation_config must not set {name!r} "
+                f"(allowed: {', '.join(sorted(allowed))})"
+            )
 
 
 def validate_pipeline_config(config: VidSetupPipelineConfig) -> None:
@@ -283,7 +351,7 @@ def validate_pipeline_config(config: VidSetupPipelineConfig) -> None:
     validate_generation_config(pipeline_type, config.generation_config)
 
     if (
-        pipeline_type == "ltx"
+        pipeline_type in _PROMPTED_PIPELINE_TYPES
         and config.quantization_config.torch_dtype.lower()
         not in {
             "bfloat16",
@@ -292,7 +360,9 @@ def validate_pipeline_config(config: VidSetupPipelineConfig) -> None:
             "fp16",
         }
     ):
-        raise ValueError("ltx pipelines require torch_dtype float16 or bfloat16")
+        raise ValueError(
+            f"{pipeline_type} pipelines require torch_dtype float16 or bfloat16"
+        )
 
     if not upscale_active(config):
         return
@@ -305,6 +375,25 @@ def validate_pipeline_config(config: VidSetupPipelineConfig) -> None:
         )
     if upscale_type == "ltx_latent" and pipeline_type != "ltx":
         raise ValueError("ltx_latent upscaling requires video_diffuser_config.type ltx")
+
+
+def pipeline_generation_kwargs(
+    pipeline_type: str, gen_cfg: GenerationConfig
+) -> dict[str, Any]:
+    """Build diffusers call kwargs for the active backend (excludes width/height)."""
+    normalized = pipeline_type.strip().lower()
+    allowed = _GENERATION_FIELDS_BY_TYPE.get(normalized)
+    if allowed is None:
+        raise ValueError(f"unsupported pipeline type {pipeline_type!r}")
+
+    kwargs = {
+        key: value
+        for key, value in gen_cfg.__dict__.items()
+        if key in allowed and value is not None
+    }
+    if normalized == "sana" and "num_frames" in kwargs:
+        kwargs["frames"] = kwargs.pop("num_frames")
+    return kwargs
 
 
 def _scene_image_filename(scene_number: int, io_cfg: InputOutputConfig) -> str:

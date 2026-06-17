@@ -1,3 +1,4 @@
+# ~6GB VRAM: LTX 2B distilled with group offloading; uses script.json image_prompt when available.
 video_diffuser_config:
   type: ltx
   model_path: oxide-lab/LTX-Video-0.9.8-2B-distilled
@@ -15,10 +16,10 @@ quantization_config:
   enable_xformers: false
 
 generation_config:
-  num_inference_steps: 16
-  num_frames: 14
-  width: 768
-  height: 432
+  num_inference_steps: 8
+  num_frames: 9
+  width: 512
+  height: 288
   frame_rate: 7
   guidance_scale: 1.0
   decode_timestep: 0.05

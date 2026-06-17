@@ -36,7 +36,7 @@ def configure_logging(level: int = logging.INFO) -> logging.Logger:
 logger = configure_logging()
 
 
-def  resolve_stages(
+def resolve_stages(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
 ) -> list[int]:
@@ -111,10 +111,11 @@ def main() -> None:
         summaries.update(STAGES[n](logger, pipeline_config, state))
 
     logger.info(
-        "Done: %s script(s), %s raw written, %s raw skipped",
+        "Done: %s script(s), %s raw written, %s raw skipped, %s raw failed",
         summaries.get("scripts", 0),
         summaries.get("raw_written", 0),
         summaries.get("raw_skipped", 0),
+        summaries.get("raw_failed", 0),
     )
 
 

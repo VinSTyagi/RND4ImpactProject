@@ -329,10 +329,36 @@ uses `4gb`.
 - Tune `global_vllm_config` for your VRAM, e.g.
 `[src/script_setup/configs/script_setup_qwen3_4b.yaml](src/script_setup/configs/script_setup_qwen3_4b.yaml)`.
 - script_setup compose sets `VLLM_USE_V1=0` by default.
-- Default SVD config (`vid_setup_svd.yaml`) enables CPU offload, VAE
-slicing/tiling, attention slicing, xformers, and `decode_chunk_size: 1` to fit
-~6–8 GB VRAM. Expect slow per-scene generation on 6 GB cards; lower
-`generation_config.width` / `height` for faster runs.
+- **~6 GB VRAM (recommended):** use the low-VRAM configs with sequential offload
+(SVD) or group offload (LTX):
+
+```powershell
+cd src\vid_setup
+..\..\.venv\Scripts\python.exe vid_setup_runner.py --config configs/vid_setup_svd_low_vram.yaml --all
+..\..\.venv\Scripts\python.exe vid_setup_runner.py --config configs/vid_setup_ltx_low_vram.yaml --all
+..\..\.venv\Scripts\python.exe vid_setup_runner.py --config configs/vid_setup_sana_low_vram.yaml --all
+..\..\.venv\Scripts\python.exe vid_setup_runner.py --config configs/vid_setup_cogvideox_low_vram.yaml --all
+```
+
+```bash
+cd src/vid_setup
+../../.venv/bin/python vid_setup_runner.py --config configs/vid_setup_svd_low_vram.yaml --all
+../../.venv/bin/python vid_setup_runner.py --config configs/vid_setup_ltx_low_vram.yaml --all
+../../.venv/bin/python vid_setup_runner.py --config configs/vid_setup_sana_low_vram.yaml --all
+../../.venv/bin/python vid_setup_runner.py --config configs/vid_setup_cogvideox_low_vram.yaml --all
+```
+
+See [`src/vid_setup/configs/MODELS.md`](src/vid_setup/configs/MODELS.md) for a full
+comparison of lightweight image-to-video backends (SVD, LTX, SANA, CogVideoX, Wan).
+
+- Default SVD config (`vid_setup_svd.yaml`) targets ~8 GB with CPU offload, UNet
+forward chunking, VAE slicing/tiling, attention slicing, and `decode_chunk_size: 1`.
+For tighter budgets, lower `generation_config.width` / `height` (e.g. 512×288 →
+576×320 → 768×432).
+- LTX configs read `image_prompt` from `data/<script_id>/script.json` when present
+(run script_setup stage 4 first); otherwise `generation_config.prompt` is used.
+Same applies to SANA, CogVideoX, and Wan backends.
+Upscale is disabled in low-VRAM configs (enable only when you have headroom).
 
 ## Virtual environments
 

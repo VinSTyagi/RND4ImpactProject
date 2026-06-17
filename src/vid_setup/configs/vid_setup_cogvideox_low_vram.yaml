@@ -1,13 +1,13 @@
+# ~6GB VRAM: CogVideoX 5B I2V with sequential offload (slow but fits tight budgets).
 video_diffuser_config:
-  type: ltx
-  model_path: oxide-lab/LTX-Video-0.9.8-2B-distilled
+  type: cogvideox
+  model_path: THUDM/CogVideoX-5b-I2V
   variant: null
   device: cuda
 
 quantization_config:
-  torch_dtype: bfloat16
-  enable_group_offload: true
-  enable_sequential_cpu_offload: false
+  torch_dtype: float16
+  enable_sequential_cpu_offload: true
   enable_model_cpu_offload: false
   enable_vae_slicing: true
   enable_vae_tiling: true
@@ -15,16 +15,15 @@ quantization_config:
   enable_xformers: false
 
 generation_config:
-  num_inference_steps: 16
-  num_frames: 14
-  width: 768
-  height: 432
-  frame_rate: 7
-  guidance_scale: 1.0
-  decode_timestep: 0.05
-  decode_noise_scale: 0.025
+  num_inference_steps: 30
+  num_frames: 25
+  width: 720
+  height: 480
+  frame_rate: 8
+  guidance_scale: 6.0
+  use_dynamic_cfg: false
   prompt: "cinematic motion, smooth natural movement, high quality"
-  negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
+  negative_prompt: "blurry, low quality, distorted, watermark, text, jittery"
 
 io_config:
   script_path: data/

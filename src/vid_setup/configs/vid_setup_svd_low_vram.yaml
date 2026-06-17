@@ -1,30 +1,31 @@
+# ~6GB VRAM: SVD 14-frame model with sequential offload and forward chunking.
 video_diffuser_config:
-  type: ltx
-  model_path: oxide-lab/LTX-Video-0.9.8-2B-distilled
-  variant: null
+  type: svd
+  model_path: stabilityai/stable-video-diffusion-img2vid
+  variant: fp16
   device: cuda
 
 quantization_config:
-  torch_dtype: bfloat16
-  enable_group_offload: true
-  enable_sequential_cpu_offload: false
+  torch_dtype: float16
+  enable_sequential_cpu_offload: true
   enable_model_cpu_offload: false
   enable_vae_slicing: true
   enable_vae_tiling: true
   enable_attention_slicing: true
   enable_xformers: false
+  unet_enable_forward_chunking: true
 
 generation_config:
-  num_inference_steps: 16
+  num_inference_steps: 25
   num_frames: 14
-  width: 768
-  height: 432
-  frame_rate: 7
-  guidance_scale: 1.0
-  decode_timestep: 0.05
-  decode_noise_scale: 0.025
-  prompt: "cinematic motion, smooth natural movement, high quality"
-  negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
+  width: 512
+  height: 288
+  min_guidance_scale: 1.0
+  max_guidance_scale: 1.0
+  fps: 7
+  motion_bucket_id: 127
+  noise_aug_strength: 0.02
+  decode_chunk_size: 1
 
 io_config:
   script_path: data/
