@@ -1,7 +1,7 @@
 # ~16GB VRAM (NVIDIA T4): Qwen3-8B-AWQ ~5GB weights + ~4GB KV @ 8192 ctx.
 global_vllm_config:
   model_path: Qwen/Qwen3-8B-AWQ
-  quantization: awq_marlin
+  quantization: awq
   max_tokens: 6144
   temperature: 0.6
   top_p: 0.95
