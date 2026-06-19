@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_QUANTIZATION = "awq"
 _DISABLED = frozenset({"", "null", "none", "off", "false"})
 
 
@@ -27,8 +26,8 @@ def load_vllm_engine(
     gpu_memory_utilization: float,
     enforce_eager: bool,
     max_num_batched_tokens: int,
+    quantization: str,
     trust_remote_code: bool = True,
-    quantization: str = _DEFAULT_QUANTIZATION,
     tensor_parallel_size: int = 1,
 ):
     args = {
@@ -45,7 +44,11 @@ def load_vllm_engine(
     method = str(quantization).strip().lower()
     if method not in _DISABLED:
         args["quantization"] = method
-    logger.info("Loading vLLM model %s with quantization=%r", model, args.get("quantization"))
+    logger.info(
+        "Loading vLLM model %s with quantization=%r (from YAML config)",
+        model,
+        args.get("quantization"),
+    )
     llm = LLM(**args)
     logger.info(
         "vLLM offline inference engine initialized (max_num_seqs=%s)", max_num_seqs

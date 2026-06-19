@@ -209,7 +209,14 @@ def main() -> None:
     args = parser.parse_args()
 
     pipeline_config = load_config(str(args.config))
+    vcfg = pipeline_config.global_vllm_config
     logger.info("Loaded config from %s", args.config)
+    logger.info(
+        "vLLM settings: model=%s quantization=%r max_model_len=%s",
+        vcfg.model_path,
+        vcfg.quantization,
+        vcfg.max_model_len,
+    )
 
     stages = resolve_stages(args, parser)
 
