@@ -5,26 +5,15 @@ description = "RND4Impact SDXL scene image generation (diffusers)"
 requires-python = ">=3.10,<3.13"
 license = { text = "Apache-2.0" }
 dependencies = [
-    # PyTorch stack: CUDA 12.4 wheels on Linux/Windows via [tool.uv.sources]
     "torch==2.6.0",
-    "torchvision==0.21.0",
     "xformers==0.0.29.post2; sys_platform == 'linux' or sys_platform == 'win32'",
-    # Diffusion
     "diffusers>=0.32,<0.40",
     "accelerate>=1.0",
     "safetensors>=0.4",
-    "peft>=0.13",
-    "controlnet-aux>=0.0.9",
-    "invisible-watermark>=0.2.0",
-    # CLIP tokenizer for image_prompt normalization
     "transformers>=4.51.1,<5",
-    # Pipeline utilities
     "huggingface-hub>=0.24",
     "pillow>=10.2",
     "pyyaml>=6.0",
-    "tqdm>=4.66",
-    "numpy>=1.26,<3",
-    "setuptools>=75",
 ]
 
 [[tool.uv.index]]
@@ -34,14 +23,11 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }
-torchvision = { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }
 xformers = { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }
 
 [tool.uv]
-# Prefer +cu124 wheels from the PyTorch index over CPU builds on PyPI.
 index-strategy = "unsafe-best-match"
 constraint-dependencies = [
     "torch==2.6.0",
-    "torchvision==0.21.0",
     "xformers==0.0.29.post2",
 ]

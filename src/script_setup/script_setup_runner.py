@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from utils import prefetch, stage_1, stage_2, stage_3, stage_4, vllm_wrapper
 from utils.schema import (
     PipelineConfig,
     Script,
@@ -36,6 +35,8 @@ logger = configure_logging()
 
 
 def run_stage_1(pipeline_config: PipelineConfig, state: dict) -> dict:
+    from utils import stage_1, vllm_wrapper
+
     vcfg = pipeline_config.global_vllm_config
     idea_cfg = pipeline_config.idea_config
     with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
@@ -56,6 +57,8 @@ def run_stage_1(pipeline_config: PipelineConfig, state: dict) -> dict:
 
 
 def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
+    from utils import stage_2, vllm_wrapper
+
     vcfg = pipeline_config.global_vllm_config
     title_cfg = pipeline_config.title_config
     scripts = state.get("scripts")
@@ -81,6 +84,8 @@ def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
 
 
 def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
+    from utils import stage_3, vllm_wrapper
+
     vcfg = pipeline_config.global_vllm_config
     scene_cfg = pipeline_config.scene_config
     scripts = state.get("scripts")
@@ -106,6 +111,8 @@ def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
 
 
 def run_stage_4(pipeline_config: PipelineConfig, state: dict) -> dict:
+    from utils import stage_4, vllm_wrapper
+
     vcfg = pipeline_config.global_vllm_config
     img_prompt_cfg = pipeline_config.image_config
     scripts = state.get("scripts")
@@ -207,6 +214,8 @@ def main() -> None:
     stages = resolve_stages(args, parser)
 
     if args.prefetch:
+        from utils import prefetch
+
         model_paths = prefetch.collect_model_paths(pipeline_config)
         logger.info("Prefetching models: %s", ", ".join(model_paths))
         prefetch.prefetch_models(model_paths)

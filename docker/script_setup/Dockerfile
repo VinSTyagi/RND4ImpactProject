@@ -40,15 +40,14 @@ WORKDIR /workspace
 COPY src/script_setup/pyproject.toml src/script_setup/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --directory src/script_setup --no-install-project --no-dev
+    uv sync --directory src/script_setup --no-install-project --no-dev --extra jupyter
 
 RUN set -eux; \
     ls -1 /workspace/.venv/lib/python*/site-packages/vllm/_C*.so; \
     /workspace/.venv/bin/python -c "\
-import setuptools; \
 import torch; \
 assert torch.version.cuda, 'expected CUDA-enabled torch from src/script_setup/pyproject.toml'; \
-print('setuptools', setuptools.__version__, 'torch', torch.__version__, 'cuda', torch.version.cuda); \
+print('torch', torch.__version__, 'cuda', torch.version.cuda); \
 "
 
 ############################
@@ -66,8 +65,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python${PYTHON_VERSION}-venv \
         libgl1 \
         libglib2.0-0 \
-        libsndfile1 \
-        ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/workspace/.venv/bin:${PATH}" \

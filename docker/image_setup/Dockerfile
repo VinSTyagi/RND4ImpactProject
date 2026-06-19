@@ -45,11 +45,9 @@ RUN set -eux; \
     /workspace/.venv/bin/python -c "\
 import accelerate; \
 import diffusers; \
-import setuptools; \
 import torch; \
 import xformers; \
 assert torch.version.cuda, 'expected CUDA-enabled torch from src/image_setup/pyproject.toml'; \
-print('setuptools', setuptools.__version__); \
 print('torch', torch.__version__, 'cuda', torch.version.cuda); \
 print('xformers', xformers.__version__); \
 print('accelerate', accelerate.__version__); \
