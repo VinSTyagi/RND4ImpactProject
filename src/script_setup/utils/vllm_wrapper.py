@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_QUANTIZATION = "awq_marlin"
+_DEFAULT_QUANTIZATION = "awq"
 _DISABLED = frozenset({"", "null", "none", "off", "false"})
 
 
@@ -45,6 +45,7 @@ def load_vllm_engine(
     method = str(quantization).strip().lower()
     if method not in _DISABLED:
         args["quantization"] = method
+    logger.info("Loading vLLM model %s with quantization=%r", model, args.get("quantization"))
     llm = LLM(**args)
     logger.info(
         "vLLM offline inference engine initialized (max_num_seqs=%s)", max_num_seqs
