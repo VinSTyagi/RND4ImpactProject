@@ -6,7 +6,7 @@ import time
 
 from prompts.prompt_reader import load_prompt_md
 from utils.llm_helper import (
-    extract_json_array_text,
+    parse_json_array,
     request_output_text,
     strip_reasoning,
 )
@@ -80,26 +80,61 @@ def generate_scenes(
         _format_prompt(num_scenes, tokenizer, sys_prompt, script, enable_thinking)
         for script in scripts
     ]
-    logger.info("Submitting %s scene prompt(s) to vLLM", len(prompts))
-    generate_start = time.perf_counter()
-    raw_outputs = model.generate(prompts, sampling_params)
-    generate_elapsed = time.perf_counter() - generate_start
-    logger.info("vLLM generate completed in %.2fs", generate_elapsed)
 
-    if len(raw_outputs) != len(scripts):
-        raise ValueError(
-            f"expected {len(scripts)} vLLM output(s) but received {len(raw_outputs)}"
+    pending: list[tuple[Script, str]] = list(zip(scripts, prompts))
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        if not pending:
+            break
+
+        attempt_scripts, attempt_prompts = zip(*pending)
+        logger.info(
+            "Submitting %s scene prompt(s) to vLLM (attempt %s/%s)",
+            len(attempt_prompts),
+            attempt,
+            max_attempts,
         )
+        generate_start = time.perf_counter()
+        raw_outputs = model.generate(list(attempt_prompts), sampling_params)
+        generate_elapsed = time.perf_counter() - generate_start
+        logger.info("vLLM generate completed in %.2fs", generate_elapsed)
 
-    for script, request_output in zip(scripts, raw_outputs):
-        try:
-            answer_text = strip_reasoning(request_output_text(request_output))
-            script.script_scenes = parse_scenes_from_text(answer_text, num_scenes)
-        except ValueError as exc:
+        if len(raw_outputs) != len(pending):
             raise ValueError(
-                f"failed to parse scenes for script {script.script_id}: {exc}"
-            ) from exc
-        script.model = model_name
+                f"expected {len(pending)} vLLM output(s) but received {len(raw_outputs)}"
+            )
+
+        next_pending: list[tuple[Script, str]] = []
+        for (script, prompt), request_output in zip(pending, raw_outputs):
+            answer_text = strip_reasoning(request_output_text(request_output))
+            try:
+                script.script_scenes = parse_scenes_from_text(answer_text, num_scenes)
+                script.model = model_name
+            except ValueError as exc:
+                if attempt < max_attempts:
+                    logger.warning(
+                        "Failed to parse scenes for script %s (attempt %s/%s): %s",
+                        script.script_id,
+                        attempt,
+                        max_attempts,
+                        exc,
+                    )
+                    logger.warning(
+                        "Raw model output for script %s:\n%s",
+                        script.script_id,
+                        answer_text,
+                    )
+                    next_pending.append((script, prompt))
+                    continue
+                logger.error(
+                    "Raw model output for script %s:\n%s",
+                    script.script_id,
+                    answer_text,
+                )
+                raise ValueError(
+                    f"failed to parse scenes for script {script.script_id}: {exc}"
+                ) from exc
+        pending = next_pending
 
     return scripts
 
@@ -113,7 +148,8 @@ def _format_prompt(
 ) -> str:
     payload = script.prompt_payload()
     user_prompt = (
-        f"Here is a story item JSON object. Produce around {num_scenes} scenes as a flat JSON array of scene objects ordered by scene_number starting at 0.\n"
+        f"Here is a story item JSON object. Produce exactly {num_scenes} scenes as a flat JSON array of scene objects ordered by scene_number starting at 0.\n"
+        "Use thinking/reasoning if helpful, then output ONLY a complete JSON array that starts with `[` and ends with `]`.\n"
         + json.dumps(payload, ensure_ascii=False)
     )
     messages = [
@@ -131,7 +167,7 @@ def _format_prompt(
 def parse_scenes_from_text(text: str, num_scenes: int) -> list[Scene]:
     """Parse LLM text into a validated flat scene list."""
     try:
-        payload = json.loads(extract_json_array_text(text))
+        payload = parse_json_array(text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in model output: {exc}") from exc
 

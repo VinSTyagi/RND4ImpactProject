@@ -7,7 +7,7 @@ from json import JSONDecodeError
 
 from prompts.prompt_reader import load_prompt_md
 from utils.llm_helper import (
-    extract_json_array_text,
+    parse_json_array,
     request_output_text,
     strip_reasoning,
 )
@@ -121,7 +121,7 @@ def generate_prompts(
 
 def parse_prompts_from_text(text: str, num_scenes: int) -> list[ImagePrompt]:
     try:
-        payload = json.loads(extract_json_array_text(text))
+        payload = parse_json_array(text)
     except JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in model output: {exc}") from exc
 

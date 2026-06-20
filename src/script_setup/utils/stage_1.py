@@ -5,7 +5,7 @@ import logging
 import time
 
 from prompts.prompt_reader import load_prompt_md
-from utils.llm_helper import completion_text, extract_json_array_text, strip_reasoning
+from utils.llm_helper import completion_text, parse_json_array, strip_reasoning
 from utils.schema import Idea, IdeaConfig, Script, resolve_path
 
 
@@ -85,7 +85,7 @@ def generate_scripts(
 def parse_ideas_from_text(text: str) -> list[Idea]:
     """Parse LLM text into validated idea dicts."""
     try:
-        payload = json.loads(extract_json_array_text(text))
+        payload = parse_json_array(text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in model output: {exc}") from exc
 
