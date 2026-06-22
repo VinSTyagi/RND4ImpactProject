@@ -1,0 +1,39 @@
+# ~80GB VRAM (NVIDIA A100): Wan 2.1 I2V 14B on GPU at native 480p, 49 frames.
+video_diffuser_config:
+  type: wan
+  model_path: Wan-AI/Wan2.1-I2V-14B-480P-Diffusers
+  variant: null
+  device: cuda
+
+quantization_config:
+  torch_dtype: bfloat16
+  enable_sequential_cpu_offload: false
+  enable_model_cpu_offload: false
+  enable_vae_slicing: false
+  enable_vae_tiling: false
+  enable_attention_slicing: false
+  enable_xformers: true
+
+generation_config:
+  num_inference_steps: 50
+  num_frames: 49
+  width: 832
+  height: 480
+  frame_rate: 16
+  guidance_scale: 5.5
+  prompt: "cinematic motion, smooth natural movement, high quality"
+  negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
+
+io_config:
+  script_path: data/
+  input_subdir: refined_images
+  image_template: "scene_{scene_number:02d}.png"
+  raw_videos_subdir: raw_videos
+  refined_videos_subdir: refined_videos
+  video_template: "scene_{scene_number:02d}.mp4"
+  save_raw: true
+  skip_existing: true
+
+upscale_config:
+  enabled: false
+  type: none
