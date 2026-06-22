@@ -76,40 +76,35 @@ def generate_scenes(
         raise FileNotFoundError(f"Prompt file not found or empty: {prompt_path}")
 
     model_name = model.llm_engine.model_config.model
-    prompts = [
-        _format_prompt(num_scenes, tokenizer, sys_prompt, script, enable_thinking)
-        for script in scripts
-    ]
-
-    pending: list[tuple[Script, str]] = list(zip(scripts, prompts))
     max_attempts = 2
-    for attempt in range(1, max_attempts + 1):
-        if not pending:
-            break
 
-        attempt_scripts, attempt_prompts = zip(*pending)
-        logger.info(
-            "Submitting %s scene prompt(s) to vLLM (attempt %s/%s)",
-            len(attempt_prompts),
-            attempt,
-            max_attempts,
+    for script in scripts:
+        prompt = _format_prompt(
+            num_scenes, tokenizer, sys_prompt, script, enable_thinking
         )
-        generate_start = time.perf_counter()
-        raw_outputs = model.generate(list(attempt_prompts), sampling_params)
-        generate_elapsed = time.perf_counter() - generate_start
-        logger.info("vLLM generate completed in %.2fs", generate_elapsed)
-
-        if len(raw_outputs) != len(pending):
-            raise ValueError(
-                f"expected {len(pending)} vLLM output(s) but received {len(raw_outputs)}"
+        for attempt in range(1, max_attempts + 1):
+            logger.info(
+                "Script %s — submitting scene prompt to vLLM (attempt %s/%s)",
+                script.script_id,
+                attempt,
+                max_attempts,
             )
+            generate_start = time.perf_counter()
+            raw_outputs = model.generate([prompt], sampling_params)
+            generate_elapsed = time.perf_counter() - generate_start
+            logger.info("vLLM generate completed in %.2fs", generate_elapsed)
 
-        next_pending: list[tuple[Script, str]] = []
-        for (script, prompt), request_output in zip(pending, raw_outputs):
-            answer_text = strip_reasoning(request_output_text(request_output))
+            if len(raw_outputs) != 1:
+                raise ValueError(
+                    f"expected 1 vLLM output for script {script.script_id} "
+                    f"but received {len(raw_outputs)}"
+                )
+
+            answer_text = strip_reasoning(request_output_text(raw_outputs[0]))
             try:
                 script.script_scenes = parse_scenes_from_text(answer_text, num_scenes)
                 script.model = model_name
+                break
             except ValueError as exc:
                 if attempt < max_attempts:
                     logger.warning(
@@ -124,7 +119,6 @@ def generate_scenes(
                         script.script_id,
                         answer_text,
                     )
-                    next_pending.append((script, prompt))
                     continue
                 logger.error(
                     "Raw model output for script %s:\n%s",
@@ -134,7 +128,6 @@ def generate_scenes(
                 raise ValueError(
                     f"failed to parse scenes for script {script.script_id}: {exc}"
                 ) from exc
-        pending = next_pending
 
     return scripts
 
