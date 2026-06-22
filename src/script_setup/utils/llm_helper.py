@@ -82,6 +82,72 @@ def _remove_trailing_commas(text: str) -> str:
     return repaired
 
 
+def _escape_control_chars_in_json_strings(text: str) -> str:
+    """Escape raw newlines/tabs inside JSON string literals."""
+    result: list[str] = []
+    in_string = False
+    escape = False
+    for char in text:
+        if in_string:
+            if escape:
+                escape = False
+                result.append(char)
+            elif char == "\\":
+                escape = True
+                result.append(char)
+            elif char == '"':
+                in_string = False
+                result.append(char)
+            elif char == "\n":
+                result.append("\\n")
+            elif char == "\r":
+                result.append("\\r")
+            elif char == "\t":
+                result.append("\\t")
+            else:
+                result.append(char)
+        else:
+            if char == '"':
+                in_string = True
+            result.append(char)
+    return "".join(result)
+
+
+def _insert_missing_commas_between_objects(text: str) -> str:
+    return re.sub(r"\}(\s*)\{", r"},\1{", text)
+
+
+def _json_repair_candidates(text: str) -> list[str]:
+    normalized = _normalize_json_quotes(text)
+    seen: set[str] = set()
+    candidates: list[str] = []
+
+    def add(value: str) -> None:
+        if value not in seen:
+            seen.add(value)
+            candidates.append(value)
+
+    escaped = _escape_control_chars_in_json_strings(normalized)
+    for base in (normalized, escaped):
+        add(base)
+        add(_remove_trailing_commas(base))
+        with_commas = _insert_missing_commas_between_objects(base)
+        add(with_commas)
+        add(_remove_trailing_commas(with_commas))
+    return candidates
+
+
+def _try_loads_json_text(text: str) -> Any:
+    last_exc: json.JSONDecodeError | None = None
+    for candidate in _json_repair_candidates(text):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+    assert last_exc is not None
+    raise last_exc
+
+
 def extract_json_array_text(text: str) -> str:
     cleaned = strip_markdown_fences(text)
     start = cleaned.find("[")
@@ -112,20 +178,85 @@ def extract_json_array_text(text: str) -> str:
     raise ValueError("no complete JSON array found in model output")
 
 
+def extract_json_object_texts(text: str) -> list[str]:
+    """Extract complete top-level object literals from a JSON array fragment."""
+    cleaned = strip_markdown_fences(text)
+    start = cleaned.find("[")
+    index = start + 1 if start != -1 else 0
+
+    objects: list[str] = []
+    length = len(cleaned)
+    while index < length:
+        while index < length and cleaned[index] in " \t\n\r,":
+            index += 1
+        if index >= length or cleaned[index] == "]":
+            break
+        if cleaned[index] != "{":
+            index += 1
+            continue
+
+        obj_start = index
+        depth = 0
+        in_string = False
+        escape = False
+        parsed = False
+        for pos in range(index, length):
+            char = cleaned[pos]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        objects.append(cleaned[obj_start : pos + 1])
+                        index = pos + 1
+                        parsed = True
+                        break
+        if not parsed:
+            break
+    return objects
+
+
+def _parse_json_objects_fallback(text: str) -> list[Any] | None:
+    objects = extract_json_object_texts(text)
+    if not objects:
+        return None
+    return [_try_loads_json_text(obj_text) for obj_text in objects]
+
+
 def loads_json_text(text: str) -> Any:
     """Parse JSON text with light repairs for common LLM formatting mistakes."""
-    normalized = _normalize_json_quotes(text)
-    candidates = [normalized, _remove_trailing_commas(normalized)]
-    last_exc: json.JSONDecodeError | None = None
-    for candidate in candidates:
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError as exc:
-            last_exc = exc
-    assert last_exc is not None
-    raise last_exc
+    return _try_loads_json_text(text)
 
 
 def parse_json_array(text: str) -> Any:
     """Extract and parse the first top-level JSON array from LLM output."""
-    return loads_json_text(extract_json_array_text(text))
+    cleaned = strip_markdown_fences(text)
+    last_exc: Exception | None = None
+
+    try:
+        array_text = extract_json_array_text(text)
+    except ValueError as exc:
+        last_exc = exc
+    else:
+        try:
+            return _try_loads_json_text(array_text)
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+
+    fallback = _parse_json_objects_fallback(cleaned)
+    if fallback:
+        return fallback
+
+    if last_exc is not None:
+        raise last_exc
+    raise ValueError("no JSON array found in model output")

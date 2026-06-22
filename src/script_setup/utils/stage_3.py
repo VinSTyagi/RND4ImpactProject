@@ -161,7 +161,7 @@ def parse_scenes_from_text(text: str, num_scenes: int) -> list[Scene]:
     """Parse LLM text into a validated flat scene list."""
     try:
         payload = parse_json_array(text)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"invalid JSON in model output: {exc}") from exc
 
     if not isinstance(payload, list):
