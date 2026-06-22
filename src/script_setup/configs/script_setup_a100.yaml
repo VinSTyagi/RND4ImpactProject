@@ -1,19 +1,17 @@
-# ~80GB VRAM (NVIDIA A100): Qwen3.5-35B-A3B-FP8 MoE (~3B active/token) @ 128K ctx.
-# Requires: uv sync --package rnd4impact-script-setup --extra qwen35
+# ~80GB VRAM (NVIDIA A100): Qwen3-30B-A3B-FP8 MoE (~3.3B active/token) @ 32K ctx.
 global_vllm_config:
-  model_path: Qwen/Qwen3.5-35B-A3B-FP8
+  model_path: Qwen/Qwen3-30B-A3B-FP8
   quantization: fp8
   max_tokens: 16384
   temperature: 0.3
   top_p: 0.95
   top_k: 20
   min_p: 0
-  max_model_len: 131072
+  max_model_len: 32768
   tensor_parallel_size: 1
   gpu_memory_utilization: 0.95
   enforce_eager: false
   enable_thinking: true
-  language_model_only: true
   max_num_seqs: 16
   max_num_batched_tokens: 65536
 
