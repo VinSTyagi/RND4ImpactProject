@@ -1,34 +1,34 @@
-# ~80GB VRAM (NVIDIA A100): Qwen3.5-35B-A3B-FP8 MoE (~3B active/token) @ 128K ctx.
+# ~16GB VRAM (NVIDIA T4): Qwen3.5-4B-AWQ ~3GB weights + KV @ 16K ctx.
 # Requires: uv sync --package rnd4impact-script-setup --extra qwen35
 global_vllm_config:
-  model_path: Qwen/Qwen3.5-35B-A3B-FP8
-  quantization: fp8
-  max_tokens: 16384
+  model_path: QuantTrio/Qwen3.5-4B-AWQ
+  quantization: awq
+  max_tokens: 12288
   temperature: 0.3
   top_p: 0.95
   top_k: 20
   min_p: 0
-  max_model_len: 131072
+  max_model_len: 16384
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.95
+  gpu_memory_utilization: 0.90
   enforce_eager: false
   enable_thinking: true
   language_model_only: true
-  max_num_seqs: 16
-  max_num_batched_tokens: 65536
+  max_num_seqs: 4
+  max_num_batched_tokens: 16384
 
 idea_config:
-  num_ideas: 3
+  num_ideas: 5
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/
 
 title_config:
-  num_words: 7
+  num_words: 5
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/
 
 scene_config:
-  num_scenes: 12
+  num_scenes: 7
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
 

@@ -358,6 +358,7 @@ class VLLMModelConfig:
     tensor_parallel_size: int = 1
     gpu_memory_utilization: float = 0.80
     enforce_eager: bool = True
+    language_model_only: bool = False
     max_num_seqs: int = 1
     max_num_batched_tokens: int = 8192
 

@@ -18,7 +18,7 @@ global_vllm_config:
   max_num_batched_tokens: 65536
 
 idea_config:
-  num_ideas: 3
+  num_ideas: 10
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/
 
@@ -28,7 +28,7 @@ title_config:
   script_path: data/
 
 scene_config:
-  num_scenes: 12
+  num_scenes: 10
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
 
