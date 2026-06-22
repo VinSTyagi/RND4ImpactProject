@@ -18,11 +18,6 @@ jupyter = [
     "jupyterlab>=4.2",
     "ipykernel>=6.29",
 ]
-# Qwen3.5 multimodal models need vLLM >= 0.17 (pinned default is 0.8.5 for Qwen3-AWQ).
-qwen35 = [
-    "vllm>=0.17.0",
-    "transformers>=4.57",
-]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
