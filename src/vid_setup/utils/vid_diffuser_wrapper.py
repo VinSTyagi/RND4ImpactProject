@@ -1,12 +1,13 @@
 import contextlib
 import gc
 import logging
+import math
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
-
+import numpy as np
 import torch
 
 from diffusers import (
@@ -82,15 +83,10 @@ def _load_wan_pipeline(
 
     from diffusers import AutoencoderKLWan
 
+    from huggingface_hub import hf_hub_download
     from transformers import CLIPVisionModel
 
     dtype = _resolve_torch_dtype(quant_config.torch_dtype)
-
-    image_encoder = CLIPVisionModel.from_pretrained(
-        model_path,
-        subfolder="image_encoder",
-        torch_dtype=torch.float32,
-    )
 
     vae = AutoencoderKLWan.from_pretrained(
         model_path,
@@ -98,11 +94,48 @@ def _load_wan_pipeline(
         torch_dtype=torch.float32,
     )
 
-    return WanImageToVideoPipeline.from_pretrained(
-        model_path,
-        vae=vae,
-        image_encoder=image_encoder,
-        torch_dtype=dtype,
+    load_kwargs: dict[str, Any] = {
+        "vae": vae,
+        "torch_dtype": dtype,
+    }
+
+    try:
+        hf_hub_download(model_path, "image_encoder/config.json")
+    except Exception:
+        pass
+    else:
+        image_encoder = CLIPVisionModel.from_pretrained(
+            model_path,
+            subfolder="image_encoder",
+            torch_dtype=torch.float32,
+        )
+        load_kwargs["image_encoder"] = image_encoder
+
+    return WanImageToVideoPipeline.from_pretrained(model_path, **load_kwargs)
+
+
+def _resize_wan_conditioning_image(
+    image: Image.Image,
+    pipe: Any,
+    *,
+    max_area: int,
+) -> tuple[Image.Image, int, int]:
+    """Resize to Wan VAE patch grid while preserving source aspect ratio."""
+    aspect_ratio = image.height / image.width
+    mod_value = pipe.vae_scale_factor_spatial * pipe.transformer.config.patch_size[1]
+    height = round(math.sqrt(max_area * aspect_ratio)) // mod_value * mod_value
+    width = round(math.sqrt(max_area / aspect_ratio)) // mod_value * mod_value
+    return image.resize((width, height), Image.Resampling.LANCZOS), height, width
+
+
+def _configure_wan_scheduler(pipe: Any, *, height: int) -> None:
+    """Match UniPC flow_shift to resolution (720p vs 480p)."""
+    from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
+
+    flow_shift = 5.0 if height >= 704 else 3.0
+    pipe.scheduler = UniPCMultistepScheduler.from_config(
+        pipe.scheduler.config,
+        flow_shift=flow_shift,
     )
 
 
@@ -137,23 +170,55 @@ def _load_pipeline(
     return pipeline_cls.from_pretrained(init_config.model_path, **load_kwargs)
 
 
-def _extract_frames(result: Any) -> list:
+def _coerce_video_frames(frames: Any) -> list:
+    """Normalize diffusers video outputs to a list of per-frame arrays or PIL images."""
+    if isinstance(frames, torch.Tensor):
+        frames = frames.detach().cpu().numpy()
 
-    if hasattr(result, "frames"):
-        frames = result.frames
+    if isinstance(frames, np.ndarray):
+        video = frames
+        if video.ndim == 5:
+            video = video[0]
+        if video.ndim == 4:
+            if video.shape[1] in (1, 3, 4) and video.shape[-1] not in (1, 3, 4):
+                video = np.transpose(video, (0, 2, 3, 1))
+            return [video[index] for index in range(video.shape[0])]
+        if video.ndim == 3:
+            return [video]
 
-        if isinstance(frames, list) and frames:
-            first = frames[0]
+    if isinstance(frames, Image.Image):
+        return [frames]
 
-            if isinstance(first, list):
-                return first
-
+    if isinstance(frames, list):
+        if not frames:
+            return []
+        if len(frames) == 1:
+            nested = _coerce_video_frames(frames[0])
+            if nested:
+                return nested
+        first = frames[0]
+        if isinstance(first, list):
+            return first
+        if isinstance(first, (np.ndarray, torch.Tensor, Image.Image)):
             return frames
 
-    if isinstance(result, list):
-        return result
+    raise ValueError(f"unsupported pipeline frame type: {type(frames)!r}")
 
-    raise ValueError("pipeline output did not contain video frames")
+
+def _extract_frames(result: Any) -> list:
+    if hasattr(result, "frames"):
+        frames = result.frames
+    elif isinstance(result, tuple) and result:
+        frames = result[0]
+    elif isinstance(result, list):
+        frames = result
+    else:
+        raise ValueError("pipeline output did not contain video frames")
+
+    normalized = _coerce_video_frames(frames)
+    if not normalized:
+        raise ValueError("pipeline output did not contain video frames")
+    return normalized
 
 
 @contextlib.contextmanager
@@ -238,10 +303,6 @@ def generate_video_from_images(
     except Exception as exc:
         raise ValueError(f"Error opening image: {exc}") from exc
 
-    image = image.resize(
-        (gen_config.width, gen_config.height), Image.Resampling.LANCZOS
-    )
-
     try:
         args = pipeline_generation_kwargs(pipeline_type, gen_config)
 
@@ -265,9 +326,28 @@ def generate_video_from_images(
             if resolved_negative:
                 args["negative_prompt"] = resolved_negative
 
-            args["width"] = gen_config.width
-
-            args["height"] = gen_config.height
+            if normalized_type == "wan":
+                image, wan_height, wan_width = _resize_wan_conditioning_image(
+                    image,
+                    pipe,
+                    max_area=gen_config.width * gen_config.height,
+                )
+                _configure_wan_scheduler(pipe, height=wan_height)
+                args["width"] = wan_width
+                args["height"] = wan_height
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            else:
+                image = image.resize(
+                    (gen_config.width, gen_config.height), Image.Resampling.LANCZOS
+                )
+                args["width"] = gen_config.width
+                args["height"] = gen_config.height
+        else:
+            image = image.resize(
+                (gen_config.width, gen_config.height), Image.Resampling.LANCZOS
+            )
 
         result = pipe(image=image, **args)
 
@@ -283,6 +363,8 @@ def generate_video_from_images(
                 "for export"
             )
         _export_video_atomically(frames, output_path, fps=export_fps)
+        del frames, result
+        gc.collect()
         if using_offload and torch.cuda.is_available():
             torch.cuda.empty_cache()
         return output_path

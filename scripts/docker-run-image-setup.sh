@@ -18,8 +18,6 @@ and are cached in the `rnd4impact_image_hf_cache` Docker volume.
 Options:
   --build              Run docker compose build before starting the container
   --config PATH        YAML config inside the container (default: configs/image_setup_sdxl_fp16.yaml)
-  --all                Run all stages (default)
-  --1, --2             Run only stage 1 or 2
   -h, --help           Show this help
 
 Environment:
@@ -27,8 +25,7 @@ Environment:
 
 Examples:
   ./scripts/docker-run-image-setup.sh --build
-  ./scripts/docker-run-image-setup.sh --config configs/image_setup_sdxl_low_vram.yaml --all
-  ./scripts/docker-run-image-setup.sh --1
+  ./scripts/docker-run-image-setup.sh --config configs/image_setup_sdxl_low_vram.yaml
 EOF
 }
 
@@ -41,10 +38,6 @@ while [[ $# -gt 0 ]]; do
     --config)
       CONFIG="${2:?missing value for --config}"
       shift 2
-      ;;
-    --all|--1|--2)
-      RUNNER_ARGS+=("$1")
-      shift
       ;;
     -h|--help)
       usage
@@ -61,10 +54,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-if [[ ${#RUNNER_ARGS[@]} -eq 0 ]]; then
-  RUNNER_ARGS=(--all)
-fi
 
 cd "$COMPOSE_DIR"
 

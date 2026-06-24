@@ -1,26 +1,29 @@
-# ~80GB VRAM (NVIDIA A100): Wan 2.1 I2V 14B on GPU at native 480p, 49 frames.
+# ~40GB VRAM (NVIDIA A100 40GB / L40): LTX 2B distilled on GPU at 768×432, no offload.
 video_diffuser_config:
-  type: wan
-  model_path: Wan-AI/Wan2.1-I2V-14B-480P-Diffusers
+  type: ltx
+  model_path: oxide-lab/LTX-Video-0.9.8-2B-distilled
   variant: null
   device: cuda
 
 quantization_config:
   torch_dtype: bfloat16
+  enable_group_offload: false
   enable_sequential_cpu_offload: false
   enable_model_cpu_offload: false
-  enable_vae_slicing: false
+  enable_vae_slicing: true
   enable_vae_tiling: false
   enable_attention_slicing: false
   enable_xformers: true
 
 generation_config:
-  num_inference_steps: 50
-  num_frames: 49
-  width: 832
-  height: 480
-  frame_rate: 16
-  guidance_scale: 5.5
+  num_inference_steps: 16
+  num_frames: 25
+  width: 768
+  height: 432
+  frame_rate: 12
+  guidance_scale: 1.0
+  decode_timestep: 0.05
+  decode_noise_scale: 0.025
   prompt: "cinematic motion, smooth natural movement, high quality"
   negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
 

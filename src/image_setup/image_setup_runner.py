@@ -5,21 +5,14 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Callable
 
-from utils import stage_1, stage_2
+from utils import stage_1
 from utils.schema import ImageSetupPipelineConfig, load_config, validate_pipeline_config
 
 _IMAGE_SETUP_DIR = Path(__file__).resolve().parent
+_SRC_ROOT = _IMAGE_SETUP_DIR.parent
 _DEFAULT_CONFIG = Path("configs/image_setup_sdxl_fp16.yaml")
 _LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-
-StageRunner = Callable[[logging.Logger, ImageSetupPipelineConfig, dict], dict]
-
-STAGES: dict[int, StageRunner] = {
-    1: stage_1.run_stage,
-    2: stage_2.run_stage,
-}
 
 
 def configure_logging(level: int = logging.INFO) -> logging.Logger:
@@ -37,41 +30,15 @@ def configure_logging(level: int = logging.INFO) -> logging.Logger:
 logger = configure_logging()
 
 
-def resolve_stages(
-    args: argparse.Namespace,
-    parser: argparse.ArgumentParser,
-) -> list[int]:
-    """Map CLI flags to an ordered list of stage numbers to run."""
-    if args.all:
-        return sorted(STAGES)
-    selected = [n for n in STAGES if getattr(args, f"stage_{n}")]
-    if not selected:
-        flags = ", ".join(f"--{n}" for n in sorted(STAGES))
-        parser.error(f"Specify at least one stage: {flags}, or --all")
-    return sorted(selected)
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate and refine scene images from image_prompt fields in script.json.",
+        description="Generate scene images from image_prompt fields in script.json.",
     )
     parser.add_argument(
         "--config",
         type=Path,
         default=_DEFAULT_CONFIG,
         help="Path to image_setup YAML config",
-    )
-    for n in sorted(STAGES):
-        parser.add_argument(
-            f"--{n}",
-            dest=f"stage_{n}",
-            action="store_true",
-            help=f"Run stage {n} (1=raw generation, 2=refinement)",
-        )
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Run all implemented stages (overrides individual --N flags)",
     )
     return parser
 
@@ -93,30 +60,28 @@ def main() -> None:
     validate_pipeline_config(pipeline_config)
     logger.info("Loaded config from %s", args.config)
 
-    stages = resolve_stages(args, parser)
+    state: dict = {}
+    try:
+        logger.info("=== image_setup ===")
+        summaries = stage_1.run_stage(logger, pipeline_config, state)
 
-    if not stages:
-        flags = ", ".join(f"--{n}" for n in sorted(STAGES))
-        parser.error(f"Specify at least one stage: {flags}, or --all")
-    logger.info("Running stages: %s", ", ".join(str(n) for n in stages))
+        logger.info(
+            "Done: %s script(s), %s written, %s skipped",
+            summaries.get("scripts", 0),
+            summaries.get("written", 0),
+            summaries.get("skipped", 0),
+        )
+    finally:
+        if os.environ.get("RND4IMPACT_KEEP_MODELS") != "1":
+            if str(_SRC_ROOT) not in sys.path:
+                sys.path.insert(0, str(_SRC_ROOT))
+            import hf_cache_cleanup
 
-    state: dict = {"stages": stages}
-    summaries: dict[str, int] = {}
-
-    for n in stages:
-        logger.info("=== Stage %s ===", n)
-        result = STAGES[n](logger, pipeline_config, state)
-        summaries.update(result)
-
-    logger.info(
-        "Done: %s script(s), %s raw written, %s raw skipped, "
-        "%s refined written, %s refined skipped",
-        summaries.get("scripts", 0),
-        summaries.get("raw_written", 0),
-        summaries.get("raw_skipped", 0),
-        summaries.get("refined_written", 0),
-        summaries.get("refined_skipped", 0),
-    )
+            hf_cache_cleanup.clear_setup_models(
+                "image_setup",
+                args.config,
+                logger=logger,
+            )
 
 
 if __name__ == "__main__":

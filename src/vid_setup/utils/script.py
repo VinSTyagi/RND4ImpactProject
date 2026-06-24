@@ -143,17 +143,17 @@ class Script:
 def validate_scripts_for_video(
     logger: logging.Logger,
     scripts_by_id: dict[str, Script],
-    scene_counts: dict[str, int],
+    scene_numbers_by_script: dict[str, list[int]],
     gen_cfg: GenerationConfig,
 ) -> None:
     """Ensure every scene has a positive prompt before loading a prompted video model."""
     errors: list[str] = []
-    for script_id, scene_count in scene_counts.items():
+    for script_id, scene_numbers in scene_numbers_by_script.items():
         script = scripts_by_id.get(script_id)
         if script is None:
             errors.append(f"{script_id}: script.json not loaded")
             continue
-        for scene_number in range(scene_count):
+        for scene_number in scene_numbers:
             positive, _ = script.scene_prompts(scene_number, gen_cfg)
             if not positive:
                 errors.append(
@@ -171,5 +171,5 @@ def validate_scripts_for_video(
     logger.info(
         "Validated prompts for %s script(s), %s scene(s)",
         len(scripts_by_id),
-        sum(scene_counts.values()),
+        sum(len(numbers) for numbers in scene_numbers_by_script.values()),
     )

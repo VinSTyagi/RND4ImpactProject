@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
@@ -413,24 +413,9 @@ class GenerationConfig:
 @dataclass
 class OutputConfig:
     script_path: str = "data/"
-    raw_subdir: str = "raw_images"
-    output_subdir: str = "refined_images"
+    output_subdir: str = "raw_images"
     filename_template: str = "scene_{scene_number:02d}.png"
-    save_raw: bool = True
     skip_existing: bool = True
-
-
-@dataclass
-class RefinementConfig:
-    enabled: bool = True
-    type: str = "sdxl_refiner"
-    model_path: str = "stabilityai/stable-diffusion-xl-refiner-1.0"
-    variant: str | None = "fp16"
-    scheduler: str = "euler"
-    num_inference_steps: int = 20
-    denoising_start: float = 0.8
-    denoising_end: float = 0.8
-    strength: float = 0.35
 
 
 @dataclass
@@ -440,16 +425,7 @@ class ImageSetupPipelineConfig:
     )
     quantization_config: QuantizationConfig = field(default_factory=QuantizationConfig)
     generation_config: GenerationConfig = field(default_factory=GenerationConfig)
-    refinement_config: RefinementConfig = field(default_factory=RefinementConfig)
     output_config: OutputConfig = field(default_factory=OutputConfig)
-
-
-def refinement_active(config: ImageSetupPipelineConfig) -> bool:
-    """True when stage 2 should run a refinement backend."""
-    ref_cfg = config.refinement_config
-    if not ref_cfg.enabled:
-        return False
-    return ref_cfg.type.strip().lower() not in {"", "none"}
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
@@ -508,15 +484,29 @@ def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _dataclass_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
+    valid = {item.name for item in fields(cls)}
+    return {key: value for key, value in data.items() if key in valid}
+
+
 def load_config(path: str) -> ImageSetupPipelineConfig:
     data = _load_yaml(path)
-    return ImageSetupPipelineConfig(
-        pipeline_config=DiffusionPipelineConfig(**_section(data, "pipeline_config")),
-        quantization_config=QuantizationConfig(**_section(data, "quantization_config")),
-        generation_config=GenerationConfig(**_section(data, "generation_config")),
-        refinement_config=RefinementConfig(**_section(data, "refinement_config")),
-        output_config=OutputConfig(**_section(data, "output_config")),
+    config = ImageSetupPipelineConfig(
+        pipeline_config=DiffusionPipelineConfig(
+            **_dataclass_kwargs(DiffusionPipelineConfig, _section(data, "pipeline_config"))
+        ),
+        quantization_config=QuantizationConfig(
+            **_dataclass_kwargs(QuantizationConfig, _section(data, "quantization_config"))
+        ),
+        generation_config=GenerationConfig(
+            **_dataclass_kwargs(GenerationConfig, _section(data, "generation_config"))
+        ),
+        output_config=OutputConfig(
+            **_dataclass_kwargs(OutputConfig, _section(data, "output_config"))
+        ),
     )
+    validate_pipeline_config(config)
+    return config
 
 
 def parse_cfg_scale(value: str, default: float) -> float:
@@ -530,7 +520,7 @@ def parse_cfg_scale(value: str, default: float) -> float:
 
 
 def validate_pipeline_config(config: ImageSetupPipelineConfig) -> None:
-    """Reject incompatible pipeline and refinement combinations."""
+    """Reject incompatible pipeline combinations."""
     pipeline_cfg = config.pipeline_config
     pipeline_type = pipeline_cfg.type.strip().lower()
     if pipeline_type not in _SUPPORTED_PIPELINE_TYPES:
@@ -547,21 +537,6 @@ def validate_pipeline_config(config: ImageSetupPipelineConfig) -> None:
         )
     if pipeline_cfg.uses_lightning_unet() and pipeline_type != "sdxl":
         raise ValueError("lightning UNet checkpoints require pipeline type sdxl")
-
-    if not refinement_active(config):
-        return
-
-    ref_type = config.refinement_config.type.strip().lower()
-    if pipeline_type == "sd15" and ref_type == "sdxl_refiner":
-        raise ValueError(
-            "sd15 pipelines do not support sdxl_refiner refinement; "
-            "use img2img or disable refinement"
-        )
-    if pipeline_cfg.uses_lightning_unet() and ref_type == "sdxl_refiner":
-        raise ValueError(
-            "lightning UNet checkpoints do not support sdxl_refiner refinement; "
-            "use img2img or disable refinement"
-        )
 
     width = config.generation_config.width
     height = config.generation_config.height
@@ -640,18 +615,5 @@ def scene_output_path(
         resolve_path(output_cfg.script_path)
         / str(script_id)
         / output_cfg.output_subdir
-        / _scene_filename(scene_number, output_cfg)
-    )
-
-
-def scene_raw_output_path(
-    script_id: UUID | str,
-    scene_number: int,
-    output_cfg: OutputConfig,
-) -> Path:
-    return (
-        resolve_path(output_cfg.script_path)
-        / str(script_id)
-        / output_cfg.raw_subdir
         / _scene_filename(scene_number, output_cfg)
     )

@@ -1,28 +1,32 @@
-# ~80GB VRAM (NVIDIA A100): Wan 2.1 I2V 14B on GPU at native 480p, 49 frames.
+# ~40GB VRAM (NVIDIA A100 40GB / L40): SVD on GPU at 1024×576, no CPU offload.
+# Faster alternative to Wan when you do not need text-conditioned motion.
 video_diffuser_config:
-  type: wan
-  model_path: Wan-AI/Wan2.1-I2V-14B-480P-Diffusers
-  variant: null
+  type: svd
+  model_path: stabilityai/stable-video-diffusion-img2vid
+  variant: fp16
   device: cuda
 
 quantization_config:
-  torch_dtype: bfloat16
+  torch_dtype: float16
   enable_sequential_cpu_offload: false
   enable_model_cpu_offload: false
-  enable_vae_slicing: false
+  enable_vae_slicing: true
   enable_vae_tiling: false
   enable_attention_slicing: false
   enable_xformers: true
+  unet_enable_forward_chunking: true
 
 generation_config:
-  num_inference_steps: 50
-  num_frames: 49
-  width: 832
-  height: 480
-  frame_rate: 16
-  guidance_scale: 5.5
-  prompt: "cinematic motion, smooth natural movement, high quality"
-  negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
+  num_inference_steps: 25
+  num_frames: 14
+  width: 1024
+  height: 576
+  min_guidance_scale: 1.0
+  max_guidance_scale: 1.0
+  fps: 7
+  motion_bucket_id: 127
+  noise_aug_strength: 0.02
+  decode_chunk_size: 2
 
 io_config:
   script_path: data/

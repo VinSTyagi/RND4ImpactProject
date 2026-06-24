@@ -8,9 +8,7 @@ from utils.schema import (
     ImageSetupPipelineConfig,
     Scene,
     Script,
-    refinement_active,
     scene_output_path,
-    scene_raw_output_path,
     validate_pipeline_config,
 )
 
@@ -47,19 +45,6 @@ def iter_scenes(script: Script) -> Iterator[tuple[Script, Scene]]:
         yield script, scene
 
 
-def _latent_handoff_enabled(
-    config: ImageSetupPipelineConfig,
-    stages: list[int],
-) -> bool:
-    ref_cfg = config.refinement_config
-    return (
-        refinement_active(config)
-        and 2 in stages
-        and ref_cfg.type.strip().lower() == "sdxl_refiner"
-        and not config.output_config.save_raw
-    )
-
-
 def run_stage(
     logger: logging.Logger,
     config: ImageSetupPipelineConfig,
@@ -67,14 +52,7 @@ def run_stage(
 ) -> dict:
     output_cfg = config.output_config
     gen_cfg = config.generation_config
-    ref_cfg = config.refinement_config
     pipeline_type = config.pipeline_config.type.strip().lower()
-    family = diffusion_wrapper.get_pipeline_family(pipeline_type)
-    refine = refinement_active(config)
-    stages: list[int] = state.get("stages", [1])
-    use_latent_handoff = family.supports_latent_handoff and _latent_handoff_enabled(
-        config, stages
-    )
 
     validate_pipeline_config(config)
 
@@ -91,7 +69,6 @@ def run_stage(
 
     written = 0
     skipped = 0
-    latent_handoffs: dict[tuple[str, int], object] = {}
 
     with session_factory(
         config.pipeline_config,
@@ -103,49 +80,19 @@ def run_stage(
             for _, scene in iter_scenes(script):
                 scene_number = scene["scene_number"]
                 script_id = str(script.script_id)
+                output_path = scene_output_path(
+                    script.script_id, scene_number, output_cfg
+                )
 
-                if refine:
-                    raw_path = scene_raw_output_path(
-                        script.script_id, scene_number, output_cfg
+                if output_cfg.skip_existing and output_path.is_file():
+                    logger.info(
+                        "Skipping script %s scene %s (output exists): %s",
+                        script_id,
+                        scene_number,
+                        output_path,
                     )
-                    final_path = scene_output_path(
-                        script.script_id, scene_number, output_cfg
-                    )
-                    if output_cfg.skip_existing:
-                        if final_path.is_file():
-                            logger.info(
-                                "Skipping script %s scene %s (final exists): %s",
-                                script_id,
-                                scene_number,
-                                final_path,
-                            )
-                            skipped += 1
-                            continue
-                        if not use_latent_handoff and raw_path.is_file():
-                            logger.info(
-                                "Skipping script %s scene %s (raw exists): %s",
-                                script_id,
-                                scene_number,
-                                raw_path,
-                            )
-                            skipped += 1
-                            continue
-                else:
-                    raw_path = scene_output_path(
-                        script.script_id, scene_number, output_cfg
-                    )
-                    if output_cfg.skip_existing and raw_path.is_file():
-                        logger.info(
-                            "Skipping script %s scene %s (output exists): %s",
-                            script_id,
-                            scene_number,
-                            raw_path,
-                        )
-                        skipped += 1
-                        continue
-
-                denoising_end = ref_cfg.denoising_end if use_latent_handoff else None
-                output_type = "latent" if use_latent_handoff else "pil"
+                    skipped += 1
+                    continue
 
                 result = diffusion_wrapper.generate_scene_image(
                     pipeline,
@@ -154,32 +101,21 @@ def run_stage(
                     pipeline_type=pipeline_type,
                     pipeline_cfg=pipeline_cfg,
                     seed_offset=scene_number,
-                    output_type=output_type,
-                    denoising_end=denoising_end,
                 )
 
-                if use_latent_handoff:
-                    latent_handoffs[(script_id, scene_number)] = result
-                    logger.info(
-                        "Generated raw latent for script %s scene %s",
-                        script_id,
-                        scene_number,
-                    )
-                else:
-                    raw_path.parent.mkdir(parents=True, exist_ok=True)
-                    result.save(raw_path)
-                    logger.info(
-                        "Saved raw image for script %s scene %s to %s",
-                        script_id,
-                        scene_number,
-                        raw_path,
-                    )
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                result.save(output_path)
+                logger.info(
+                    "Saved image for script %s scene %s to %s",
+                    script_id,
+                    scene_number,
+                    output_path,
+                )
                 written += 1
 
     state["scripts"] = scripts
-    state["latent_handoffs"] = latent_handoffs
     return {
         "scripts": len(scripts),
-        "raw_written": written,
-        "raw_skipped": skipped,
+        "written": written,
+        "skipped": skipped,
     }

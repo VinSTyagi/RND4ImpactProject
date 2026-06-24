@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
 from utils.schema import PipelineConfig, resolve_path
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 logger = logging.getLogger(__name__)
 

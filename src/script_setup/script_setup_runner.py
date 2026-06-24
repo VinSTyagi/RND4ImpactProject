@@ -5,6 +5,10 @@ import logging
 import json
 import os
 import sys
+
+# Must be set before vLLM is imported (see utils/vllm_wrapper.py).
+os.environ.setdefault("VLLM_USE_V1", "0")
+
 from pathlib import Path
 from typing import Callable
 
@@ -15,6 +19,7 @@ from utils.schema import (
 )
 
 _SCRIPT_SETUP_DIR = Path(__file__).resolve().parent
+_SRC_ROOT = _SCRIPT_SETUP_DIR.parent
 _DEFAULT_CONFIG = Path("configs/script_setup_qwen3_4b.yaml")
 _LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
@@ -235,14 +240,28 @@ def main() -> None:
     logger.info("Running stages: %s", ", ".join(str(n) for n in stages))
 
     state: dict = {}
-    for n in stages:
-        logger.info("=== Stage %s ===", n)
-        STAGES[n](pipeline_config, state)
+    ran_stages = False
+    try:
+        for n in stages:
+            logger.info("=== Stage %s ===", n)
+            STAGES[n](pipeline_config, state)
+        ran_stages = True
 
-    scripts = state.get("scripts")
-    if scripts:
-        for script in scripts:
-            print(json.dumps(script.to_json()))
+        scripts = state.get("scripts")
+        if scripts:
+            for script in scripts:
+                print(json.dumps(script.to_json()))
+    finally:
+        if ran_stages and os.environ.get("RND4IMPACT_KEEP_MODELS") != "1":
+            if str(_SRC_ROOT) not in sys.path:
+                sys.path.insert(0, str(_SRC_ROOT))
+            import hf_cache_cleanup
+
+            hf_cache_cleanup.clear_setup_models(
+                "script_setup",
+                args.config,
+                logger=logger,
+            )
 
 
 if __name__ == "__main__":

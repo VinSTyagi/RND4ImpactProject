@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
@@ -358,7 +358,6 @@ class VLLMModelConfig:
     tensor_parallel_size: int = 1
     gpu_memory_utilization: float = 0.80
     enforce_eager: bool = True
-    language_model_only: bool = False
     max_num_seqs: int = 1
     max_num_batched_tokens: int = 8192
 
@@ -455,12 +454,21 @@ def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _dataclass_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
+    valid = {item.name for item in fields(cls)}
+    return {key: value for key, value in data.items() if key in valid}
+
+
 def load_config(path: str) -> PipelineConfig:
     data = _load_yaml(path)
     return PipelineConfig(
-        global_vllm_config=VLLMModelConfig(**_section(data, "global_vllm_config")),
-        idea_config=IdeaConfig(**_section(data, "idea_config")),
-        title_config=TitleConfig(**_section(data, "title_config")),
-        scene_config=SceneConfig(**_section(data, "scene_config")),
-        image_config=ImagePromptConfig(**_section(data, "image_config")),
+        global_vllm_config=VLLMModelConfig(
+            **_dataclass_kwargs(VLLMModelConfig, _section(data, "global_vllm_config"))
+        ),
+        idea_config=IdeaConfig(**_dataclass_kwargs(IdeaConfig, _section(data, "idea_config"))),
+        title_config=TitleConfig(**_dataclass_kwargs(TitleConfig, _section(data, "title_config"))),
+        scene_config=SceneConfig(**_dataclass_kwargs(SceneConfig, _section(data, "scene_config"))),
+        image_config=ImagePromptConfig(
+            **_dataclass_kwargs(ImagePromptConfig, _section(data, "image_config"))
+        ),
     )

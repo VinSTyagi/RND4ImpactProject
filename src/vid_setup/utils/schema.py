@@ -64,7 +64,6 @@ _LTX_GENERATION_FIELDS = frozenset(
 _SANA_GENERATION_FIELDS = frozenset(
     {
         "guidance_scale",
-        "frame_rate",
         "prompt",
         "negative_prompt",
         "use_resolution_binning",
@@ -73,7 +72,6 @@ _SANA_GENERATION_FIELDS = frozenset(
 _COGVIDEOX_GENERATION_FIELDS = frozenset(
     {
         "guidance_scale",
-        "frame_rate",
         "prompt",
         "negative_prompt",
         "use_dynamic_cfg",
@@ -82,11 +80,19 @@ _COGVIDEOX_GENERATION_FIELDS = frozenset(
 _WAN_GENERATION_FIELDS = frozenset(
     {
         "guidance_scale",
-        "frame_rate",
         "prompt",
         "negative_prompt",
     }
 )
+
+# YAML fields used only when writing the output mp4 (not pipeline __call__ kwargs).
+_EXPORT_ONLY_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
+    "svd": frozenset(),
+    "ltx": frozenset(),
+    "sana": frozenset({"frame_rate"}),
+    "cogvideox": frozenset({"frame_rate"}),
+    "wan": frozenset({"frame_rate"}),
+}
 
 _SHARED_GENERATION_FIELDS = frozenset(
     {
@@ -172,7 +178,7 @@ class InputOutputConfig:
     """Script-relative paths for scene images and generated videos."""
 
     script_path: str = "data/"
-    input_subdir: str = "refined_images"
+    input_subdir: str = "raw_images"
     image_template: str = "scene_{scene_number:02d}.png"
     raw_videos_subdir: str = "raw_videos"
     refined_videos_subdir: str = "refined_videos"
@@ -328,13 +334,37 @@ def validate_generation_config(pipeline_type: str, gen_cfg: GenerationConfig) ->
             f"(got {gen_cfg.max_guidance_scale})"
         )
 
+    if normalized == "cogvideox" and gen_cfg.num_frames != 49:
+        raise ValueError(
+            "cogvideox pipelines require num_frames=49 "
+            f"(got {gen_cfg.num_frames}); other frame counts produce mosaic/grid artifacts"
+        )
+
+    if normalized == "wan" and (gen_cfg.num_frames - 1) % 4 != 0:
+        raise ValueError(
+            "wan pipelines require num_frames of the form 4*k+1 "
+            f"(got {gen_cfg.num_frames})"
+        )
+
+    if normalized == "svd":
+        if gen_cfg.fps is None:
+            raise ValueError("svd generation_config requires fps for video export")
+    elif normalized in _PROMPTED_PIPELINE_TYPES:
+        if gen_cfg.frame_rate is None:
+            raise ValueError(
+                f"{normalized} generation_config requires frame_rate for video export"
+            )
+
     for name, value in gen_cfg.__dict__.items():
         if name in {"width", "height"} or value is None:
             continue
-        if name not in allowed:
+        allowed_with_export = allowed | _EXPORT_ONLY_FIELDS_BY_TYPE.get(
+            normalized, frozenset()
+        )
+        if name not in allowed_with_export:
             raise ValueError(
                 f"{normalized} generation_config must not set {name!r} "
-                f"(allowed: {', '.join(sorted(allowed))})"
+                f"(allowed: {', '.join(sorted(allowed_with_export))})"
             )
 
 
@@ -417,6 +447,7 @@ def _resolve_path(rel: str) -> Path:
 
 @dataclass(frozen=True)
 class ScenePaths:
+    scene_number: int
     image: Path
     raw_video: Path
     refined_video: Path
@@ -430,6 +461,7 @@ def scene_paths(
     """Resolved image, raw-video, and refined-video paths for one scene."""
     base = _resolve_path(io_cfg.script_path) / str(script_id)
     return ScenePaths(
+        scene_number=scene_number,
         image=base / io_cfg.input_subdir / _scene_image_filename(scene_number, io_cfg),
         raw_video=base
         / io_cfg.raw_videos_subdir
@@ -445,11 +477,39 @@ def script_base_path(io_cfg: InputOutputConfig) -> Path | None:
     return base if base.is_dir() else None
 
 
+def _scene_numbers_from_script(script_id: UUID | str, io_cfg: InputOutputConfig) -> list[int]:
+    script_json = _resolve_path(io_cfg.script_path) / str(script_id) / "script.json"
+    if not script_json.is_file():
+        return []
+    import json
+
+    with script_json.open(encoding="utf-8") as handle:
+        data = json.load(handle)
+    raw_scenes = data.get("script_scenes")
+    if not isinstance(raw_scenes, list) or not raw_scenes:
+        return []
+    numbers: list[int] = []
+    for index, scene in enumerate(raw_scenes):
+        if not isinstance(scene, dict):
+            continue
+        scene_number = scene.get("scene_number", index)
+        try:
+            numbers.append(int(scene_number))
+        except (TypeError, ValueError):
+            numbers.append(index)
+    return sorted(dict.fromkeys(numbers))
+
+
 def scene_paths_for_script(
     script_id: UUID | str,
     io_cfg: InputOutputConfig,
 ) -> list[ScenePaths]:
-    """All scene paths for one script, in scene order."""
+    """All scene paths for one script, aligned with script.json when available."""
+    scene_numbers = _scene_numbers_from_script(script_id, io_cfg)
+    if scene_numbers:
+        paths = [scene_paths(script_id, scene_number, io_cfg) for scene_number in scene_numbers]
+        return [path for path in paths if path.image.is_file()]
+
     results: list[ScenePaths] = []
     scene_number = 0
     while True:

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import gc
-import inspect
 import logging
+import os
 from typing import TYPE_CHECKING
+
+# AWQ MoE models (e.g. Qwen3-30B-A3B-AWQ) require the V0 engine; V1 fails in FusedMoE.
+os.environ.setdefault("VLLM_USE_V1", "0")
 
 import torch
 from vllm import LLM, SamplingParams
@@ -30,7 +33,6 @@ def load_vllm_engine(
     quantization: str,
     trust_remote_code: bool = True,
     tensor_parallel_size: int = 1,
-    language_model_only: bool = False,
 ):
     args = {
         "model": model,
@@ -43,15 +45,6 @@ def load_vllm_engine(
         "tensor_parallel_size": tensor_parallel_size,
         "trust_remote_code": trust_remote_code,
     }
-    if language_model_only:
-        llm_params = inspect.signature(LLM.__init__).parameters
-        if "language_model_only" in llm_params:
-            args["language_model_only"] = True
-        else:
-            logger.warning(
-                "language_model_only=True but installed vLLM lacks support; "
-                "install the qwen35 extra: uv sync --package rnd4impact-script-setup --extra qwen35"
-            )
     method = str(quantization).strip().lower()
     if method not in _DISABLED:
         args["quantization"] = method
@@ -120,7 +113,6 @@ def vllm_session(vcfg: VLLMModelConfig):
         max_num_batched_tokens=vcfg.max_num_batched_tokens,
         tensor_parallel_size=vcfg.tensor_parallel_size,
         quantization=vcfg.quantization,
-        language_model_only=vcfg.language_model_only,
     )
     try:
         params = sample_params(

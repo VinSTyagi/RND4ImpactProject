@@ -1,26 +1,27 @@
-# ~80GB VRAM (NVIDIA A100): Wan 2.1 I2V 14B on GPU at native 480p, 49 frames.
+# ~40GB VRAM (A100 40GB / L40): Wan 2.2 TI2V 5B at native 720p (1280×704), 81 frames.
+# Model CPU offload + VAE tiling required on 40GB — full-GPU load OOMs during VAE decode.
 video_diffuser_config:
   type: wan
-  model_path: Wan-AI/Wan2.1-I2V-14B-480P-Diffusers
+  model_path: Wan-AI/Wan2.2-TI2V-5B-Diffusers
   variant: null
   device: cuda
 
 quantization_config:
   torch_dtype: bfloat16
   enable_sequential_cpu_offload: false
-  enable_model_cpu_offload: false
-  enable_vae_slicing: false
-  enable_vae_tiling: false
-  enable_attention_slicing: false
-  enable_xformers: true
+  enable_model_cpu_offload: true
+  enable_vae_slicing: true
+  enable_vae_tiling: true
+  enable_attention_slicing: true
+  enable_xformers: false
 
 generation_config:
   num_inference_steps: 50
-  num_frames: 49
-  width: 832
-  height: 480
-  frame_rate: 16
-  guidance_scale: 5.5
+  num_frames: 81
+  width: 1280
+  height: 704
+  frame_rate: 24
+  guidance_scale: 5.0
   prompt: "cinematic motion, smooth natural movement, high quality"
   negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
 

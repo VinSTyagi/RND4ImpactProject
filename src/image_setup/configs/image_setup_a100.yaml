@@ -1,4 +1,4 @@
-# ~80GB VRAM (NVIDIA A100): full SDXL base + refiner on GPU at 1920×1080.
+# ~80GB VRAM (NVIDIA A100): SDXL base on GPU at 1920×1080.
 pipeline_config:
   type: sdxl
   model_path: stabilityai/stable-diffusion-xl-base-1.0
@@ -22,21 +22,8 @@ generation_config:
   width: 1920
   height: 1080
 
-refinement_config:
-  enabled: true
-  type: sdxl_refiner
-  model_path: stabilityai/stable-diffusion-xl-refiner-1.0
-  variant: fp16
-  scheduler: euler
-  num_inference_steps: 35
-  denoising_start: 0.8
-  denoising_end: 0.8
-  strength: 0.35
-
 output_config:
   script_path: data/
-  raw_subdir: raw_images
-  output_subdir: refined_images
+  output_subdir: raw_images
   filename_template: "scene_{scene_number:02d}.png"
-  save_raw: true
   skip_existing: true

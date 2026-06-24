@@ -1,5 +1,5 @@
 # Distilled SDXL (~50% smaller UNet than full SDXL). Uses StableDiffusionXLPipeline.
-# Middle ground: near-SDXL quality at ~6-8 GB VRAM with img2img refinement.
+# Middle ground: near-SDXL quality at ~6-8 GB VRAM.
 pipeline_config:
   type: sdxl
   model_path: segmind/SSD-1B
@@ -23,21 +23,8 @@ generation_config:
   width: 1344
   height: 768
 
-refinement_config:
-  enabled: true
-  type: img2img
-  model_path: segmind/SSD-1B
-  variant: null
-  scheduler: euler
-  num_inference_steps: 12
-  denoising_start: 0.8
-  denoising_end: 0.8
-  strength: 0.25
-
 output_config:
   script_path: data/
-  raw_subdir: raw_images
-  output_subdir: refined_images
+  output_subdir: raw_images
   filename_template: "scene_{scene_number:02d}.png"
-  save_raw: true
   skip_existing: true

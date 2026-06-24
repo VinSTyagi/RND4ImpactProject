@@ -10,6 +10,8 @@ from utils.schema import QuantizationConfig
 logger = logging.getLogger(__name__)
 
 _CUDA_BACKENDS_CONFIGURED = False
+# CogVideoX passes image_rotary_emb via cross_attention_kwargs; XFormersAttnProcessor ignores it.
+_XFORMERS_INCOMPATIBLE_PIPELINE_TYPES = frozenset({"cogvideox"})
 
 
 def configure_cuda_backends() -> None:
@@ -216,6 +218,12 @@ def apply_vid_optimizations(
     if quant_config.enable_attention_slicing:
         _try_enable_attention_slicing(pipeline)
     elif quant_config.enable_xformers and not using_offload:
-        try_enable_xformers(pipeline)
+        if normalized in _XFORMERS_INCOMPATIBLE_PIPELINE_TYPES:
+            logger.info(
+                "Skipping xformers for %s (requires image_rotary_emb not supported by XFormersAttnProcessor)",
+                normalized,
+            )
+        else:
+            try_enable_xformers(pipeline)
 
     return using_offload

@@ -24,8 +24,7 @@ Environment:
 
 Examples:
   .\scripts\docker-run-image-setup.ps1 -Build
-  .\scripts\docker-run-image-setup.ps1 -Config configs/image_setup_sdxl_low_vram.yaml -- -all
-  .\scripts\docker-run-image-setup.ps1 -- -1
+  .\scripts\docker-run-image-setup.ps1 -Config configs/image_setup_sdxl_low_vram.yaml
 "@
 }
 
@@ -36,10 +35,6 @@ if ($RunnerArgs -contains "-h" -or $RunnerArgs -contains "--help" -or $RunnerArg
 
 if ($env:IMAGE_SETUP_CONFIG -and -not $PSBoundParameters.ContainsKey("Config")) {
     $Config = $env:IMAGE_SETUP_CONFIG
-}
-
-if ($RunnerArgs.Count -eq 0) {
-    $RunnerArgs = @("--all")
 }
 
 $Root = Split-Path -Parent $PSScriptRoot

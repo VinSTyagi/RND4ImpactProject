@@ -157,7 +157,10 @@ def format_user_prompts(
             {
                 "role": "user",
                 "content": (
-                    "Here is a scene JSON object. Produce a Stable Diffusion XL prompt\n"
+                    "Here is a scene JSON object. Produce ONE image-prompt object as a JSON array "
+                    "with exactly one element.\n"
+                    "Use string arrays for positive_prompt and negative_prompt. "
+                    "Include cfg_scale (integer 5–12) tuned to this scene's visual complexity.\n"
                     f"{json.dumps(scene_payload(scene), ensure_ascii=False)}"
                 ),
             },

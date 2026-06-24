@@ -142,6 +142,7 @@ def _format_prompt(
     payload = script.prompt_payload()
     user_prompt = (
         f"Here is a story item JSON object. Produce exactly {num_scenes} scenes as a flat JSON array of scene objects ordered by scene_number starting at 0.\n"
+        "Each scene must be visually rich and filmable: detailed setting, a 5-8 sentence summary with props/lighting/action, and a strong closing image in ends_on.\n"
         "Use thinking/reasoning if helpful, then output ONLY a complete JSON array that starts with `[` and ends with `]`.\n"
         + json.dumps(payload, ensure_ascii=False)
     )

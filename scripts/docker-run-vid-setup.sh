@@ -18,7 +18,6 @@ run and are cached in the `rnd4impact_vid_hf_cache` Docker volume.
 Options:
   --build              Run docker compose build before starting the container
   --config PATH        YAML config inside the container (default: configs/vid_setup_svd.yaml)
-  --all                Run all stages (default)
   -h, --help           Show this help
 
 Environment:
@@ -26,7 +25,7 @@ Environment:
 
 Examples:
   ./scripts/docker-run-vid-setup.sh --build
-  ./scripts/docker-run-vid-setup.sh --config configs/vid_setup_svd.yaml --all
+  ./scripts/docker-run-vid-setup.sh --config configs/vid_setup_svd.yaml
 EOF
 }
 
@@ -39,10 +38,6 @@ while [[ $# -gt 0 ]]; do
     --config)
       CONFIG="${2:?missing value for --config}"
       shift 2
-      ;;
-    --all)
-      RUNNER_ARGS+=("$1")
-      shift
       ;;
     -h|--help)
       usage
@@ -59,10 +54,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-if [[ ${#RUNNER_ARGS[@]} -eq 0 ]]; then
-  RUNNER_ARGS=(--all)
-fi
 
 cd "$COMPOSE_DIR"
 

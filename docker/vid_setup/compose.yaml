@@ -36,7 +36,6 @@ services:
       - vid_setup/vid_setup_runner.py
       - --config
       - configs/vid_setup_svd_low_vram.yaml
-      - --all
 
   shell:
     <<: *common

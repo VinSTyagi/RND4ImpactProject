@@ -1,0 +1,4 @@
+# ~80GB VRAM profile: script → images → videos.
+script_config: configs/script_setup_a100.yaml
+image_config: configs/image_setup_a100.yaml
+vid_config: configs/vid_setup_a100.yaml

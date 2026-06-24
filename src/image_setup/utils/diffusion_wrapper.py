@@ -11,9 +11,7 @@ import torch
 from diffusers import (
     DPMSolverMultistepScheduler,
     EulerDiscreteScheduler,
-    StableDiffusionImg2ImgPipeline,
     StableDiffusionPipeline,
-    StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLPipeline,
 )
 from huggingface_hub import hf_hub_download
@@ -34,13 +32,11 @@ if TYPE_CHECKING:
         GenerationConfig,
         ImagePrompt,
         QuantizationConfig,
-        RefinementConfig,
     )
 
 logger = logging.getLogger(__name__)
 
 PipelineType = Literal["sdxl", "sd15"]
-OutputType = Literal["pil", "latent"]
 
 _TURBO_CFG_MAX = 2.0
 _DTYPE_MAP = {
@@ -57,33 +53,20 @@ class DiffusionTxt2ImgPipeline(Protocol):
     def __call__(self, **kwargs: Any) -> Any: ...
 
 
-class DiffusionImg2ImgPipeline(Protocol):
-    def __call__(self, **kwargs: Any) -> Any: ...
-
-
 @dataclass(frozen=True)
 class PipelineFamily:
     name: PipelineType
     txt2img_cls: type
-    img2img_cls: type
-    supports_refiner: bool
-    supports_latent_handoff: bool
 
 
 _PIPELINE_FAMILIES: dict[PipelineType, PipelineFamily] = {
     "sdxl": PipelineFamily(
         name="sdxl",
         txt2img_cls=StableDiffusionXLPipeline,
-        img2img_cls=StableDiffusionXLImg2ImgPipeline,
-        supports_refiner=True,
-        supports_latent_handoff=True,
     ),
     "sd15": PipelineFamily(
         name="sd15",
         txt2img_cls=StableDiffusionPipeline,
-        img2img_cls=StableDiffusionImg2ImgPipeline,
-        supports_refiner=False,
-        supports_latent_handoff=False,
     ),
 }
 
@@ -239,54 +222,6 @@ def load_txt2img_pipeline(
     return pipeline
 
 
-def load_img2img_pipeline(
-    model_path: str,
-    pipeline_cfg: DiffusionPipelineConfig,
-    quant_cfg: QuantizationConfig,
-    gen_cfg: GenerationConfig,
-    *,
-    scheduler: str | None = None,
-    base_pipeline: DiffusionTxt2ImgPipeline | None = None,
-) -> DiffusionImg2ImgPipeline:
-    family = get_pipeline_family(pipeline_cfg.type)
-    load_kwargs = _build_load_kwargs(pipeline_cfg, quant_cfg)
-    scheduler_name = scheduler if scheduler is not None else pipeline_cfg.scheduler
-
-    if base_pipeline is not None and family.name == "sdxl":
-        logger.info(
-            "Loading %s img2img pipeline from %s (shared encoders)",
-            family.name,
-            model_path,
-        )
-        pipeline = family.img2img_cls.from_pretrained(
-            model_path,
-            text_encoder_2=base_pipeline.text_encoder_2,
-            vae=base_pipeline.vae,
-            **load_kwargs,
-        )
-    else:
-        logger.info("Loading %s img2img pipeline from %s", family.name, model_path)
-        pipeline = family.img2img_cls.from_pretrained(
-            model_path,
-            **load_kwargs,
-        )
-
-    _prepare_loaded_pipeline(
-        pipeline,
-        pipeline_cfg,
-        quant_cfg,
-        gen_cfg,
-        scheduler_name=scheduler_name,
-    )
-    logger.info(
-        "%s img2img pipeline ready (device=%s, scheduler=%s)",
-        family.name,
-        gen_cfg.device,
-        scheduler_name,
-    )
-    return pipeline
-
-
 def cleanup() -> None:
     gc.collect()
     if torch.cuda.is_available():
@@ -337,9 +272,7 @@ def generate_scene_image(
     pipeline_type: str,
     pipeline_cfg: DiffusionPipelineConfig,
     seed_offset: int = 0,
-    output_type: OutputType = "pil",
-    denoising_end: float | None = None,
-) -> Image.Image | torch.Tensor:
+) -> Image.Image:
     family = get_pipeline_family(pipeline_type)
     positive, negative, width, height = _prompt_bundle(
         image_prompt, pipeline_type, gen_cfg
@@ -347,102 +280,25 @@ def generate_scene_image(
     guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
     generator, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
 
-    pipeline_output_type = "latent" if output_type == "latent" else "pil"
-    call_kwargs: dict[str, Any] = {
-        "prompt": positive,
-        "negative_prompt": negative,
-        "width": width,
-        "height": height,
-        "num_inference_steps": gen_cfg.num_inference_steps,
-        "guidance_scale": guidance_scale,
-        "generator": generator,
-        "output_type": pipeline_output_type,
-    }
-    if denoising_end is not None:
-        if not family.supports_latent_handoff:
-            raise ValueError(
-                f"{family.name} pipelines do not support latent handoff (denoising_end)"
-            )
-        call_kwargs["denoising_end"] = denoising_end
-
     logger.info(
-        "Generating raw image (%dx%d, steps=%s, cfg=%.2f, seed=%s, output=%s, family=%s)",
+        "Generating image (%dx%d, steps=%s, cfg=%.2f, seed=%s, family=%s)",
         width,
         height,
         gen_cfg.num_inference_steps,
         guidance_scale,
         seed,
-        pipeline_output_type,
         family.name,
     )
 
-    result = pipeline(**call_kwargs)
-    return result.images[0]
-
-
-def refine_scene_sdxl_refiner(
-    pipeline: DiffusionImg2ImgPipeline,
-    image_prompt: ImagePrompt,
-    gen_cfg: GenerationConfig,
-    ref_cfg: RefinementConfig,
-    pipeline_cfg: DiffusionPipelineConfig,
-    image: Image.Image | torch.Tensor,
-    seed_offset: int = 0,
-) -> Image.Image:
-    positive, negative, _, _ = _prompt_bundle(image_prompt, "sdxl", gen_cfg)
-    guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
-    _, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
-
-    logger.info(
-        "Refining image (steps=%s, cfg=%.2f, denoising_start=%.2f, seed=%s)",
-        ref_cfg.num_inference_steps,
-        guidance_scale,
-        ref_cfg.denoising_start,
-        seed,
-    )
-
     result = pipeline(
         prompt=positive,
         negative_prompt=negative,
-        image=image,
-        num_inference_steps=ref_cfg.num_inference_steps,
-        denoising_start=ref_cfg.denoising_start,
+        width=width,
+        height=height,
+        num_inference_steps=gen_cfg.num_inference_steps,
         guidance_scale=guidance_scale,
-    )
-    return result.images[0]
-
-
-def refine_scene_img2img(
-    pipeline: DiffusionImg2ImgPipeline,
-    image_prompt: ImagePrompt,
-    gen_cfg: GenerationConfig,
-    ref_cfg: RefinementConfig,
-    *,
-    pipeline_type: str,
-    pipeline_cfg: DiffusionPipelineConfig,
-    image: Image.Image,
-    seed_offset: int = 0,
-) -> Image.Image:
-    positive, negative, _, _ = _prompt_bundle(image_prompt, pipeline_type, gen_cfg)
-    guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
-    _, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
-
-    logger.info(
-        "Refining image via img2img (steps=%s, cfg=%.2f, strength=%.2f, seed=%s, family=%s)",
-        ref_cfg.num_inference_steps,
-        guidance_scale,
-        ref_cfg.strength,
-        seed,
-        pipeline_type,
-    )
-
-    result = pipeline(
-        prompt=positive,
-        negative_prompt=negative,
-        image=image,
-        strength=ref_cfg.strength,
-        num_inference_steps=ref_cfg.num_inference_steps,
-        guidance_scale=guidance_scale,
+        generator=generator,
+        output_type="pil",
     )
     return result.images[0]
 
@@ -462,34 +318,6 @@ def txt2img_session(
         cleanup()
 
 
-@contextlib.contextmanager
-def img2img_session(
-    model_path: str,
-    pipeline_cfg: DiffusionPipelineConfig,
-    quant_cfg: QuantizationConfig,
-    gen_cfg: GenerationConfig,
-    *,
-    scheduler: str | None = None,
-    base_pipeline: DiffusionTxt2ImgPipeline | None = None,
-):
-    """Load an img2img pipeline for one run and guarantee cleanup on exit."""
-    pipeline = load_img2img_pipeline(
-        model_path,
-        pipeline_cfg,
-        quant_cfg,
-        gen_cfg,
-        scheduler=scheduler,
-        base_pipeline=base_pipeline,
-    )
-    try:
-        yield pipeline
-    finally:
-        del pipeline
-        cleanup()
-
-
 # Backward-compatible aliases for SDXL-specific call sites.
 sdxl_session = txt2img_session
-sdxl_img2img_session = img2img_session
 load_sdxl_pipeline = load_txt2img_pipeline
-load_sdxl_img2img_pipeline = load_img2img_pipeline

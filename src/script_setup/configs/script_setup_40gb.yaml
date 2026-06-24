@@ -1,23 +1,23 @@
-# ~80GB VRAM (NVIDIA A100): Qwen3-32B-AWQ ~21GB weights + KV @ 32K ctx.
-# Largest dense Qwen3 AWQ that fits comfortably on a single A100 (avoid MoE AWQ / FP8 on Ampere).
+# ~40GB VRAM (NVIDIA A100 40GB / L40): Qwen3-30B-A3B-AWQ MoE (~3.3B active) + KV @ 40K ctx.
+# MoE AWQ requires awq_marlin in vLLM 0.8.x (plain awq has no FusedMoE quant path).
 global_vllm_config:
-  model_path: Qwen/Qwen3-32B-AWQ
-  quantization: awq
-  max_tokens: 16384
-  temperature: 0.3
+  model_path: surogate/Qwen3-30B-A3B-AWQ
+  quantization: awq_marlin
+  max_tokens: 32768
+  temperature: 0.5
   top_p: 0.95
   top_k: 20
   min_p: 0
-  max_model_len: 32768
+  max_model_len: 40960
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.92
+  gpu_memory_utilization: 0.88
   enforce_eager: false
   enable_thinking: true
-  max_num_seqs: 16
-  max_num_batched_tokens: 32768
+  max_num_seqs: 1
+  max_num_batched_tokens: 40960
 
 idea_config:
-  num_ideas: 10
+  num_ideas: 1
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/
 
@@ -27,7 +27,7 @@ title_config:
   script_path: data/
 
 scene_config:
-  num_scenes: 10
+  num_scenes: 5
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
 

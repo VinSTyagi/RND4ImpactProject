@@ -83,4 +83,4 @@ COPY README.md LICENSE /workspace/
 
 WORKDIR /workspace/src
 
-CMD ["python", "vid_setup/vid_setup_runner.py", "--config", "configs/vid_setup_svd.yaml", "--all"]
+CMD ["python", "vid_setup/vid_setup_runner.py", "--config", "configs/vid_setup_svd.yaml"]

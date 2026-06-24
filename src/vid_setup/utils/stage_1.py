@@ -34,7 +34,8 @@ def run_stage(
     scripts_by_id: dict[str, Script] = {}
     if pipeline_needs_prompt(pipeline_type):
         scene_counts = {
-            script_id: len(scenes) for script_id, scenes in paths_by_script.items()
+            script_id: [scene.scene_number for scene in scenes]
+            for script_id, scenes in paths_by_script.items()
         }
         try:
             scripts_by_id = Script.load_by_ids(list(paths_by_script), io_cfg)
@@ -83,11 +84,12 @@ def run_stage(
     ) as (pipeline, using_offload):
         for script_id, scenes in paths_by_script.items():
             script = scripts_by_id.get(script_id)
-            for scene_number, scene in tqdm(
-                enumerate(scenes),
+            for scene in tqdm(
+                scenes,
                 desc=f"Generating videos for script {script_id}",
                 total=len(scenes),
             ):
+                scene_number = scene.scene_number
                 if io_cfg.skip_existing and scene.raw_video.is_file():
                     logger.info(
                         "Skipping script %s scene %s (output exists): %s",

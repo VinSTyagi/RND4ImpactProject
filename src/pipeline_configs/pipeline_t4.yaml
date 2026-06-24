@@ -1,0 +1,4 @@
+# ~16GB VRAM profile: script → images → videos.
+script_config: configs/script_setup_t4.yaml
+image_config: configs/image_setup_t4.yaml
+vid_config: configs/vid_setup_t4.yaml

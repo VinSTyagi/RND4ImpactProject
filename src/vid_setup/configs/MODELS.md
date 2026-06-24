@@ -1,8 +1,9 @@
 # Image-to-video model reference (vid_setup)
 
 Configs set `video_diffuser_config.type` to one of the backends below. Use the
-`*_low_vram.yaml` presets on ~6GB GPUs; raise resolution/frame count only when
-you have headroom.
+`*_low_vram.yaml` presets on ~6GB GPUs; `*_t4.yaml` on ~16GB; `*_40gb.yaml` on
+~40GB (A100 40GB / L40); `*_a100.yaml` on ~80GB. Raise resolution/frame count
+only when you have headroom.
 
 
 | Type        | Model (Hugging Face)                                 | Params | ~VRAM (low preset) | Prompt required | Notes                                                   |
@@ -20,15 +21,20 @@ higher peak on 6GB consumer cards.
 ## Config files
 
 
-| Config                              | Backend          | Target               |
-| ----------------------------------- | ---------------- | -------------------- |
-| `vid_setup_svd_low_vram.yaml`       | SVD              | ~6GB, no text prompt |
-| `vid_setup_ltx_low_vram.yaml`       | LTX 2B distilled | ~6GB                 |
-| `vid_setup_sana_low_vram.yaml`      | SANA-Video 2B    | ~6GB                 |
-| `vid_setup_cogvideox_low_vram.yaml` | CogVideoX 5B I2V | ~6GB (slow)          |
-| `vid_setup_wan_low_vram.yaml`       | Wan 2.1 I2V 14B  | ~8GB+                |
-| `vid_setup_svd.yaml`                | SVD              | ~8GB at 1024×576     |
-| `vid_setup_ltx.yaml`                | LTX 2B           | ~8GB at 768×432      |
+| Config                              | Backend          | Target                         |
+| ----------------------------------- | ---------------- | ------------------------------ |
+| `vid_setup_svd_low_vram.yaml`       | SVD              | ~6GB, no text prompt           |
+| `vid_setup_ltx_low_vram.yaml`       | LTX 2B distilled | ~6GB                           |
+| `vid_setup_sana_low_vram.yaml`      | SANA-Video 2B    | ~6GB                           |
+| `vid_setup_cogvideox_low_vram.yaml` | CogVideoX 5B I2V | ~6GB (slow)                    |
+| `vid_setup_wan_low_vram.yaml`       | Wan 2.1 I2V 14B  | ~8GB+                          |
+| `vid_setup_svd.yaml`                | SVD              | ~8GB at 1024×576 (CPU offload) |
+| `vid_setup_ltx.yaml`                | LTX 2B           | ~8GB at 768×432 (group offload)|
+| `vid_setup_t4.yaml`                 | Wan 2.1 I2V 14B  | ~16GB, model offload           |
+| `vid_setup_svd_40gb.yaml`           | SVD              | ~40GB at 1024×576, GPU-only    |
+| `vid_setup_ltx_40gb.yaml`           | LTX 2B distilled | ~40GB at 768×432, GPU-only     |
+| `vid_setup_40gb.yaml`               | Wan 2.1 I2V 14B  | ~40GB at 832×480, 41 frames    |
+| `vid_setup_a100.yaml`               | Wan 2.1 I2V 14B  | ~80GB at 832×480, 49 frames    |
 
 
 ## Prompts

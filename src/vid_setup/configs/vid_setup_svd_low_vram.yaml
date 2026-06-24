@@ -29,7 +29,7 @@ generation_config:
 
 io_config:
   script_path: data/
-  input_subdir: refined_images
+  input_subdir: raw_images
   image_template: "scene_{scene_number:02d}.png"
   raw_videos_subdir: raw_videos
   refined_videos_subdir: refined_videos

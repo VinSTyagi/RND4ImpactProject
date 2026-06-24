@@ -16,7 +16,7 @@ quantization_config:
 
 generation_config:
   num_inference_steps: 30
-  num_frames: 25
+  num_frames: 49
   width: 720
   height: 480
   frame_rate: 8
@@ -27,7 +27,7 @@ generation_config:
 
 io_config:
   script_path: data/
-  input_subdir: refined_images
+  input_subdir: raw_images
   image_template: "scene_{scene_number:02d}.png"
   raw_videos_subdir: raw_videos
   refined_videos_subdir: refined_videos
