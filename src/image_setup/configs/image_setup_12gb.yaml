@@ -1,8 +1,8 @@
-# SSD-1B with CPU offload and VAE tiling for tighter VRAM budgets.
+# ~12GB VRAM: SDXL with CPU offload at 1024×576.
 pipeline_config:
   type: sdxl
-  model_path: segmind/SSD-1B
-  variant: null
+  model_path: stabilityai/stable-diffusion-xl-base-1.0
+  variant: fp16
   scheduler: euler
 
 quantization_config:
@@ -15,7 +15,7 @@ quantization_config:
   enable_xformers: false
 
 generation_config:
-  num_inference_steps: 25
+  num_inference_steps: 30
   default_guidance_scale: 7.5
   seed: null
   device: cuda
@@ -24,8 +24,6 @@ generation_config:
 
 output_config:
   script_path: data/
-  raw_subdir: raw_images
-  output_subdir: refined_images
-  filename_template: "scene_{scene_number}_{prompt_number}.png"
-  save_raw: true
+  output_subdir: raw_images
+  filename_template: "scene_{scene_number:02d}_{prompt_number}.png"
   skip_existing: true

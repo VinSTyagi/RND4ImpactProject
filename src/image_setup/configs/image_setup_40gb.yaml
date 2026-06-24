@@ -1,4 +1,4 @@
-# ~40GB VRAM (NVIDIA A100 40GB / L40): SDXL base on GPU at 1920×1080.
+# ~40GB VRAM: SDXL base + refiner via latent handoff (SDXL-native aspect per prompt).
 pipeline_config:
   type: sdxl
   model_path: stabilityai/stable-diffusion-xl-base-1.0
@@ -15,15 +15,26 @@ quantization_config:
   enable_xformers: true
 
 generation_config:
-  num_inference_steps: 45
+  num_inference_steps: 40
   default_guidance_scale: 7.5
   seed: null
   device: cuda
-  width: 1920
-  height: 1080
+
+refinement_config:
+  enabled: true
+  type: sdxl_refiner
+  model_path: stabilityai/stable-diffusion-xl-refiner-1.0
+  variant: fp16
+  scheduler: euler
+  num_inference_steps: 40
+  denoising_start: 0.8
+  denoising_end: 0.8
+  image_denoising_start: 0.01
 
 output_config:
   script_path: data/
-  output_subdir: raw_images
-  filename_template: "scene_{scene_number:02d}.png"
+  raw_subdir: raw_images
+  output_subdir: refined_images
+  filename_template: "scene_{scene_number:02d}_{prompt_number}.png"
+  save_raw: false
   skip_existing: true

@@ -1,4 +1,0 @@
-# ~40GB VRAM profile: script → images → videos.
-script_config: configs/script_setup_40gb.yaml
-image_config: configs/image_setup_40gb.yaml
-vid_config: configs/vid_setup_40gb.yaml

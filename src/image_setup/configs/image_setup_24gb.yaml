@@ -1,9 +1,8 @@
-# Smaller distilled SDXL sibling to SSD-1B. Uses StableDiffusionXLPipeline.
-# Faster and lighter than SSD-1B with a modest quality trade-off.
+# ~24GB VRAM: SDXL on GPU at 1344×768 with VAE tiling.
 pipeline_config:
   type: sdxl
-  model_path: segmind/Segmind-Vega
-  variant: null
+  model_path: stabilityai/stable-diffusion-xl-base-1.0
+  variant: fp16
   scheduler: euler
 
 quantization_config:
@@ -11,12 +10,12 @@ quantization_config:
   enable_model_cpu_offload: false
   enable_sequential_cpu_offload: false
   enable_vae_slicing: true
-  enable_vae_tiling: false
+  enable_vae_tiling: true
   enable_attention_slicing: false
   enable_xformers: true
 
 generation_config:
-  num_inference_steps: 20
+  num_inference_steps: 35
   default_guidance_scale: 7.5
   seed: null
   device: cuda
@@ -25,8 +24,6 @@ generation_config:
 
 output_config:
   script_path: data/
-  raw_subdir: raw_images
-  output_subdir: refined_images
-  filename_template: "scene_{scene_number}_{prompt_number}.png"
-  save_raw: true
+  output_subdir: raw_images
+  filename_template: "scene_{scene_number:02d}_{prompt_number}.png"
   skip_existing: true

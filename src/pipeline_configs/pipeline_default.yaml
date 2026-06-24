@@ -1,4 +1,0 @@
-# Default profile (moderate VRAM): same defaults as the individual setup runners.
-script_config: configs/script_setup_qwen3_4b.yaml
-image_config: configs/image_setup_sdxl_fp16.yaml
-vid_config: configs/vid_setup_svd.yaml

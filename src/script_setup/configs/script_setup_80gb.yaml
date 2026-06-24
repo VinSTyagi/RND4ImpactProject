@@ -1,41 +1,44 @@
-# ~6GB VRAM: ~2.9GB weights + ~1.2GB KV @ 8192 ctx (~0.7GB headroom).
+# ~80GB VRAM: Qwen3-32B-AWQ, full batching.
 global_vllm_config:
-  model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
-  quantization: awq_marlin
-  max_tokens: 4096
-  temperature: 0.25
-  max_model_len: 4096
+  model_path: Qwen/Qwen3-32B-AWQ
+  quantization: awq
+  max_tokens: 16384
+  temperature: 0.3
+  top_p: 0.95
+  top_k: 20
+  min_p: 0
+  max_model_len: 32768
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.80
+  gpu_memory_utilization: 0.92
   enforce_eager: false
   enable_thinking: true
-  max_num_seqs: 4
-  max_num_batched_tokens: 4096
+  max_num_seqs: 16
+  max_num_batched_tokens: 32768
 
 idea_config:
-  num_ideas: 1
+  num_ideas: 3
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/
   batch_size: 0
 
 title_config:
-  num_words: 5
+  num_words: 7
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/
   batch_size: 0
 
-scene_outline_config:
-  num_scenes: 7
+scene_config:
+  num_scenes: 12
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
-  batch_size: 1
+  batch_size: 0
 
 scene_content_config:
   min_beats: 18
   max_beats: 40
   prompt_path: script_setup/prompts/stage_4.md
   script_path: data/
-  batch_size: 1
+  batch_size: 0
 
 image_config:
   min_prompts: 1
@@ -43,6 +46,3 @@ image_config:
   prompt_path: script_setup/prompts/stage_5.md
   script_path: data/
   batch_size: 0
-
-video_config:
-  script_path: data/

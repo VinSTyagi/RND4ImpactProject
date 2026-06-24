@@ -1,3 +1,4 @@
+# ~12GB VRAM: Qwen3-4B-AWQ, moderate context.
 global_vllm_config:
   model_path: Qwen/Qwen3-4B-AWQ
   quantization: awq_marlin
@@ -6,43 +7,42 @@ global_vllm_config:
   top_p: 0.95
   top_k: 20
   min_p: 0
-  max_model_len: 6144
+  max_model_len: 8192
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.90
+  gpu_memory_utilization: 0.88
   enforce_eager: false
   enable_thinking: true
-  max_num_seqs: 3
-  max_num_batched_tokens: 6144
+  max_num_seqs: 2
+  max_num_batched_tokens: 8192
 
 idea_config:
-  num_ideas: 3
+  num_ideas: 1
   prompt_path: script_setup/prompts/stage_1.md
-  output_path: data/ # Will accept format of data/{script_id}/script.json
+  output_path: data/
   batch_size: 0
 
 title_config:
   num_words: 5
   prompt_path: script_setup/prompts/stage_2.md
-  script_path: data/ # Will accept format of data/{script_id}/script.json
-  batch_size: 0
+  script_path: data/
+  batch_size: 1
 
-scene_outline_config:
-  num_scenes: 7
+scene_config:
+  num_scenes: 5
   prompt_path: script_setup/prompts/stage_3.md
-  script_path: data/ # Will accept format of data/{script_id}/script.json
+  script_path: data/
   batch_size: 1
 
 scene_content_config:
-  min_beats: 18
-  max_beats: 40
+  min_beats: 10
+  max_beats: 20
   prompt_path: script_setup/prompts/stage_4.md
-  script_path: data/ # Will accept format of data/{script_id}/script.json
+  script_path: data/
   batch_size: 1
 
 image_config:
   min_prompts: 1
-  max_prompts: 5
+  max_prompts: 4
   prompt_path: script_setup/prompts/stage_5.md
-  script_path: data/ # Will accept format of data/{script_id}/script.json
-  batch_size: 0
-
+  script_path: data/
+  batch_size: 1

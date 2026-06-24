@@ -1,3 +1,4 @@
+# ~6GB VRAM: SDXL with CPU offload at 1024×576.
 pipeline_config:
   type: sdxl
   model_path: stabilityai/stable-diffusion-xl-base-1.0
@@ -16,15 +17,13 @@ quantization_config:
 generation_config:
   num_inference_steps: 25
   default_guidance_scale: 7.5
-  seed: 42
+  seed: null
   device: cuda
   width: 1024
   height: 576
 
 output_config:
   script_path: data/
-  raw_subdir: raw_images
-  output_subdir: refined_images
-  filename_template: "scene_{scene_number}_{prompt_number}.png"
-  save_raw: true
+  output_subdir: raw_images
+  filename_template: "scene_{scene_number:02d}_{prompt_number}.png"
   skip_existing: true

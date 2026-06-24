@@ -1,19 +1,22 @@
-# ~6GB VRAM: ~1GB weights + ~0.9GB KV @ 32768 ctx; only 2 KV heads makes cache tiny. Gen limit: 8K.
+# ~24GB VRAM: Qwen3-8B-AWQ, larger context and light batching.
 global_vllm_config:
-  model_path: Qwen/Qwen2.5-1.5B-Instruct-AWQ
-  quantization: awq_marlin
+  model_path: Qwen/Qwen3-8B-AWQ
+  quantization: awq
   max_tokens: 8192
-  temperature: 0.25
-  max_model_len: 32768
+  temperature: 0.5
+  top_p: 0.95
+  top_k: 20
+  min_p: 0
+  max_model_len: 16384
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.80
-  enforce_eager: true
+  gpu_memory_utilization: 0.85
+  enforce_eager: false
   enable_thinking: true
   max_num_seqs: 4
-  max_num_batched_tokens: 8192
+  max_num_batched_tokens: 16384
 
 idea_config:
-  num_ideas: 10
+  num_ideas: 1
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/
   batch_size: 0
@@ -22,28 +25,24 @@ title_config:
   num_words: 7
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/
-  batch_size: 0
+  batch_size: 1
 
-scene_outline_config:
-  num_scenes: 5
+scene_config:
+  num_scenes: 7
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
   batch_size: 1
 
 scene_content_config:
-  min_beats: 18
-  max_beats: 40
+  min_beats: 12
+  max_beats: 25
   prompt_path: script_setup/prompts/stage_4.md
   script_path: data/
-  batch_size: 1
+  batch_size: 2
 
 image_config:
   min_prompts: 1
   max_prompts: 5
   prompt_path: script_setup/prompts/stage_5.md
   script_path: data/
-  batch_size: 0
-  output_path: data/
-
-video_config:
-  script_path: data/
+  batch_size: 2
