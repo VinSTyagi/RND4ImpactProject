@@ -49,6 +49,9 @@ def generate_scripts(
 
     user_prompt = (
         f"Generate exactly {num_ideas} distinct story ideas. "
+        "Each idea must be visually and narratively detailed in every field — "
+        "rich setting, filmable hook, named protagonist with visible traits, "
+        "and concrete stakes that later stages can expand into scenes and images. "
         "Use thinking/reasoning if helpful, then output ONLY a complete JSON array "
         "that starts with `[` and ends with `]`."
     )

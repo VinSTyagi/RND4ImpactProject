@@ -1,8 +1,8 @@
 # ~40GB VRAM (NVIDIA A100 40GB / L40): Qwen3-30B-A3B-AWQ MoE (~3.3B active) + KV @ 40K ctx.
 # MoE AWQ requires awq_marlin in vLLM 0.8.x (plain awq has no FusedMoE quant path).
 global_vllm_config:
-  model_path: surogate/Qwen3-30B-A3B-AWQ
-  quantization: awq_marlin
+  model_path: Qwen/Qwen3-32B-AWQ
+  quantization: awq
   max_tokens: 32768
   temperature: 0.5
   top_p: 0.95
