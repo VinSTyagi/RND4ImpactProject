@@ -5,6 +5,7 @@ import logging
 import time
 
 from prompts.prompt_reader import load_prompt_md
+from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import (
     request_output_text,
     strip_markdown_fences,
@@ -24,7 +25,11 @@ def run_stage(
     logger.info("Beginning stage 2 (title generation)")
     scripts = Script.read_all(config.script_path)
     logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
-    logger.info("Running vLLM generate for %s scripts", len(scripts))
+    logger.info(
+        "Running vLLM generate for %s scripts (batch_size=%s)",
+        len(scripts),
+        config.batch_size,
+    )
     start = time.perf_counter()
 
     if not scripts:
@@ -73,7 +78,14 @@ def generate_titles(
     ]
     logger.info("Submitting %s title prompt(s) to vLLM", len(prompts))
     generate_start = time.perf_counter()
-    raw_outputs = model.generate(prompts, sampling_params)
+    raw_outputs = run_llm_generations(
+        model,
+        prompts,
+        sampling_params,
+        batch_size=config.batch_size,
+        logger=logger,
+        label="stage 2",
+    )
     generate_elapsed = time.perf_counter() - generate_start
     logger.info("vLLM generate completed in %.2fs\n", generate_elapsed)
 

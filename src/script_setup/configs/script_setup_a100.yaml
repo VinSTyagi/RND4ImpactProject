@@ -20,23 +20,30 @@ idea_config:
   num_ideas: 3
   prompt_path: script_setup/prompts/stage_1.md
   output_path: data/
+  batch_size: 0
 
 title_config:
   num_words: 7
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/
+  batch_size: 0
 
 scene_outline_config:
   num_scenes: 12
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
+  batch_size: 0
 
 scene_content_config:
+  min_beats: 18
+  max_beats: 40
   prompt_path: script_setup/prompts/stage_4.md
   script_path: data/
+  batch_size: 1
 
 image_config:
   min_prompts: 1
   max_prompts: 5
   prompt_path: script_setup/prompts/stage_5.md
   script_path: data/
+  batch_size: 0

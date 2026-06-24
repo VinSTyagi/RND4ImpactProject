@@ -6,6 +6,7 @@ import time
 from json import JSONDecodeError
 
 from prompts.prompt_reader import load_prompt_md
+from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import (
     parse_json_array,
     request_output_text,
@@ -31,11 +32,26 @@ def run_stage(
     logger.info("Beginning stage 5 (SDXL image prompt generation)")
     scripts = Script.read_all(config.script_path)
     logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
-    logger.info("Running vLLM generate for %s scripts", len(scripts))
+    logger.info(
+        "Processing %s script(s) one at a time "
+        "(scene batch_size=%s, image prompts=%s-%s)",
+        len(scripts),
+        config.batch_size,
+        config.min_prompts,
+        config.max_prompts,
+    )
     start = time.perf_counter()
 
     if not scripts:
         raise ValueError("stage 5 received no scripts")
+
+    if config.min_prompts < 1:
+        raise ValueError("image_config.min_prompts must be at least 1")
+    if config.max_prompts < config.min_prompts:
+        raise ValueError(
+            "image_config.max_prompts must be >= min_prompts "
+            f"({config.max_prompts} < {config.min_prompts})"
+        )
 
     missing_scenes = [x for x in scripts if not x.script_scenes]
     if missing_scenes:
@@ -74,11 +90,16 @@ def generate_prompts(
     enable_thinking: bool = False,
 ) -> list[Script]:
     prompt_path = resolve_path(config.prompt_path)
-    system_prompt = load_prompt_md(str(prompt_path))
-    if not system_prompt:
+    system_prompt_template = load_prompt_md(str(prompt_path))
+    if not system_prompt_template:
         raise ValueError(
             f"System prompt is empty or file path for the prompt is invalid: {config.prompt_path}"
         )
+    system_prompt = _format_system_prompt(
+        system_prompt_template,
+        min_prompts=config.min_prompts,
+        max_prompts=config.max_prompts,
+    )
 
     model_name = model.llm_engine.model_config.model
     min_prompts = config.min_prompts
@@ -87,9 +108,10 @@ def generate_prompts(
     for script in scripts:
         scenes = script.script_scenes or []
         logger.info(
-            "Script: %s — submitting %s scene(s) for image prompt generation",
+            "Script: %s — submitting %s scene(s) for image prompt generation (batch_size=%s)",
             script.script_id,
             len(scenes),
+            config.batch_size,
         )
         chat_prompts = format_user_prompts(
             tokenizer,
@@ -100,7 +122,14 @@ def generate_prompts(
             enable_thinking=enable_thinking,
         )
         generate_start = time.perf_counter()
-        raw_outputs = model.generate(chat_prompts, sampling_params)
+        raw_outputs = run_llm_generations(
+            model,
+            chat_prompts,
+            sampling_params,
+            batch_size=config.batch_size,
+            logger=logger,
+            label=f"stage 5 script {script.script_id}",
+        )
         generate_elapsed = time.perf_counter() - generate_start
         logger.info("vLLM generate completed in %.2fs", generate_elapsed)
 
@@ -136,6 +165,19 @@ def generate_prompts(
         script.model = model_name
 
     return scripts
+
+
+def _format_system_prompt(
+    template: str,
+    *,
+    min_prompts: int,
+    max_prompts: int,
+) -> str:
+    return (
+        template.replace("{min_prompts}", str(min_prompts)).replace(
+            "{max_prompts}", str(max_prompts)
+        )
+    )
 
 
 def parse_prompts_from_text(

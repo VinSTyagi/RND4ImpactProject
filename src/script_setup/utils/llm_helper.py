@@ -52,9 +52,13 @@ def strip_reasoning(text: str) -> str:
     )
     if closing:
         cleaned = cleaned[closing.end() :].strip()
-    start = cleaned.find("[")
-    if start > 0:
-        cleaned = cleaned[start:]
+    obj_start = cleaned.find("{")
+    arr_start = cleaned.find("[")
+    json_starts = [index for index in (obj_start, arr_start) if index != -1]
+    if json_starts:
+        start = min(json_starts)
+        if start > 0:
+            cleaned = cleaned[start:]
     return cleaned
 
 
@@ -117,6 +121,43 @@ def _insert_missing_commas_between_objects(text: str) -> str:
     return re.sub(r"\}(\s*)\{", r"},\1{", text)
 
 
+def _repair_interior_double_quotes(text: str) -> str:
+    """Escape double quotes that appear inside JSON string values."""
+    result: list[str] = []
+    in_string = False
+    escape = False
+
+    for char in text:
+        if not in_string:
+            if char == '"':
+                in_string = True
+            result.append(char)
+            continue
+
+        if escape:
+            escape = False
+            result.append(char)
+            continue
+        if char == "\\":
+            escape = True
+            result.append(char)
+            continue
+        if char == '"':
+            index = len(result) + 1
+            while index < len(text) and text[index] in " \t\n\r":
+                index += 1
+            if index < len(text) and text[index] in ",:]}":
+                in_string = False
+                result.append(char)
+            else:
+                result.append('\\"')
+            continue
+
+        result.append(char)
+
+    return "".join(result)
+
+
 def _json_repair_candidates(text: str) -> list[str]:
     normalized = _normalize_json_quotes(text)
     seen: set[str] = set()
@@ -128,7 +169,9 @@ def _json_repair_candidates(text: str) -> list[str]:
             candidates.append(value)
 
     escaped = _escape_control_chars_in_json_strings(normalized)
-    for base in (normalized, escaped):
+    repaired_quotes = _repair_interior_double_quotes(normalized)
+    repaired_quotes_escaped = _escape_control_chars_in_json_strings(repaired_quotes)
+    for base in (normalized, escaped, repaired_quotes, repaired_quotes_escaped):
         add(base)
         add(_remove_trailing_commas(base))
         with_commas = _insert_missing_commas_between_objects(base)

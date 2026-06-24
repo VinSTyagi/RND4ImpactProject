@@ -6,7 +6,7 @@ Scene JSON with: scene_number, scene_title, act, setting, characters, summary, c
 scene_content is an array of [character, line] pairs representing dialogue, narration, inner thought, or silence in the scene.
 
 --OUTPUT FORMAT
-Return a JSON array of 1 to 5 image-prompt objects. Each object captures a distinct visual beat from the scene (dialogue moment, reaction, environment, silence, etc.):
+Return a JSON array of {min_prompts} to {max_prompts} image-prompt objects. Each object captures a distinct visual beat from the scene (dialogue moment, reaction, environment, silence, etc.):
 
 - "positive_prompt": comma-separated visible details for a single frame. **≤ 60 CLIP tokens** (~40 words). Priority: subject+action → props/figures → environment → lighting/mood → shot/style. Short phrases only; no names; no quality-tag spam.
 - "negative_prompt": **≤ 60 CLIP tokens**. Start with "blurry, low quality, bad anatomy, deformed, watermark, text, cartoon, anime" + up to 3 scene exclusions.
@@ -36,7 +36,7 @@ Example:
 ]
 
 Constraints:
-- Return 1–5 objects depending on how many distinct visual beats the scene_content supports
+- Return {min_prompts}–{max_prompts} objects depending on how many distinct visual beats the scene_content supports
 - CLIP truncates at 77 tokens — stay under 60; cut adjectives before submitting.
 - Show emotion visually (tension → rigid posture, clenched jaw).
 - Lead with the most important visual element.

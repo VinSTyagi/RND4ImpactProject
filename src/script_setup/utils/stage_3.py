@@ -5,6 +5,7 @@ import logging
 import time
 
 from prompts.prompt_reader import load_prompt_md
+from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import (
     parse_json_array,
     request_output_text,
@@ -29,7 +30,11 @@ def run_stage(
     logger.info("Beginning stage 3 (scene outline generation)")
     scripts = Script.read_all(config.script_path)
     logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
-    logger.info("Running vLLM generate for %s scripts", len(scripts))
+    logger.info(
+        "Running vLLM generate for %s script(s) (script batch_size=%s)",
+        len(scripts),
+        config.batch_size,
+    )
     start = time.perf_counter()
 
     if not scripts:
@@ -82,57 +87,63 @@ def generate_scene_outlines(
 
     model_name = model.llm_engine.model_config.model
     max_attempts = 2
+    pending_scripts = list(scripts)
 
-    for script in scripts:
-        prompt = _format_prompt(
-            num_scenes, tokenizer, sys_prompt, script, enable_thinking
+    for attempt in range(1, max_attempts + 1):
+        prompts = [
+            _format_prompt(num_scenes, tokenizer, sys_prompt, script, enable_thinking)
+            for script in pending_scripts
+        ]
+        logger.info(
+            "Submitting %s scene outline prompt(s) for %s script(s) to vLLM "
+            "(attempt %s/%s, script batch_size=%s)",
+            len(prompts),
+            len(pending_scripts),
+            attempt,
+            max_attempts,
+            config.batch_size,
         )
-        for attempt in range(1, max_attempts + 1):
-            logger.info(
-                "Script %s — submitting scene outline prompt to vLLM (attempt %s/%s)",
-                script.script_id,
-                attempt,
-                max_attempts,
-            )
-            generate_start = time.perf_counter()
-            raw_outputs = model.generate([prompt], sampling_params)
-            generate_elapsed = time.perf_counter() - generate_start
-            logger.info("vLLM generate completed in %.2fs", generate_elapsed)
+        generate_start = time.perf_counter()
+        raw_outputs = run_llm_generations(
+            model,
+            prompts,
+            sampling_params,
+            batch_size=config.batch_size,
+            logger=logger,
+            label="stage 3",
+        )
+        generate_elapsed = time.perf_counter() - generate_start
+        logger.info("vLLM generate completed in %.2fs", generate_elapsed)
 
-            if len(raw_outputs) != 1:
-                raise ValueError(
-                    f"expected 1 vLLM output for script {script.script_id} "
-                    f"but received {len(raw_outputs)}"
-                )
-
-            answer_text = strip_reasoning(request_output_text(raw_outputs[0]))
+        failed_scripts: list[Script] = []
+        for script, request_output in zip(pending_scripts, raw_outputs):
+            answer_text = strip_reasoning(request_output_text(request_output))
             try:
                 script.script_scenes = parse_scenes_from_text(answer_text, num_scenes)
                 script.model = model_name
-                break
             except ValueError as exc:
-                if attempt < max_attempts:
-                    logger.warning(
-                        "Failed to parse scene outlines for script %s (attempt %s/%s): %s",
-                        script.script_id,
-                        attempt,
-                        max_attempts,
-                        exc,
-                    )
-                    logger.warning(
-                        "Raw model output for script %s:\n%s",
-                        script.script_id,
-                        answer_text,
-                    )
-                    continue
-                logger.error(
+                logger.warning(
+                    "Failed to parse scene outlines for script %s (attempt %s/%s): %s",
+                    script.script_id,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                logger.warning(
                     "Raw model output for script %s:\n%s",
                     script.script_id,
                     answer_text,
                 )
-                raise ValueError(
-                    f"failed to parse scene outlines for script {script.script_id}: {exc}"
-                ) from exc
+                failed_scripts.append(script)
+
+        if not failed_scripts:
+            break
+        if attempt >= max_attempts:
+            failed_ids = ", ".join(str(script.script_id) for script in failed_scripts)
+            raise ValueError(
+                f"failed to parse scene outlines for script(s): {failed_ids}"
+            )
+        pending_scripts = failed_scripts
 
     return scripts
 
