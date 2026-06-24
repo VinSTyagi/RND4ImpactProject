@@ -13,24 +13,25 @@ from utils.schema import (
     scene_raw_output_path,
     validate_pipeline_config,
 )
-from utils.stage_1 import iter_scenes, validate_scripts
+from utils.stage_1 import iter_scene_prompts, validate_scripts
 
 
 def _validate_raw_inputs(
     config: ImageSetupPipelineConfig,
     scripts: list[Script],
-    latent_handoffs: dict[tuple[str, int], object],
+    latent_handoffs: dict[tuple[str, int, int], object],
 ) -> None:
     output_cfg = config.output_config
     missing: list[str] = []
     for script in scripts:
-        for _, scene in iter_scenes(script):
-            key = (str(script.script_id), scene["scene_number"])
+        for _, scene, prompt_number, _ in iter_scene_prompts(script):
+            key = (str(script.script_id), scene["scene_number"], prompt_number)
             if key in latent_handoffs:
                 continue
             raw_path = scene_raw_output_path(
                 script.script_id,
                 scene["scene_number"],
+                prompt_number,
                 output_cfg,
             )
             if not raw_path.is_file():
@@ -66,12 +67,11 @@ def run_stage(
         }
 
     ref_type = ref_cfg.type.strip().lower()
-    scripts = state.get("scripts")
-    if scripts is None:
-        scripts = Script.read_all(output_cfg.script_path)
-        validate_scripts(scripts)
+    scripts = Script.read_all(output_cfg.script_path)
+    logger.info("Loaded %s scripts from %s", len(scripts), output_cfg.script_path)
+    validate_scripts(scripts)
 
-    latent_handoffs: dict[tuple[str, int], object] = state.get("latent_handoffs", {})
+    latent_handoffs: dict[tuple[str, int, int], object] = state.get("latent_handoffs", {})
     _validate_raw_inputs(config, scripts, latent_handoffs)
 
     if ref_type == "sdxl_refiner":
@@ -102,62 +102,71 @@ def run_stage(
         scheduler=scheduler,
     ) as pipeline:
         for script in scripts:
-            for _, scene in iter_scenes(script):
+            for _, scene, prompt_number, image_prompt in iter_scene_prompts(script):
                 scene_number = scene["scene_number"]
                 script_id = str(script.script_id)
                 final_path = scene_output_path(
-                    script.script_id, scene_number, output_cfg
+                    script.script_id,
+                    scene_number,
+                    prompt_number,
+                    output_cfg,
                 )
 
                 if output_cfg.skip_existing and final_path.is_file():
                     logger.info(
-                        "Skipping refinement for script %s scene %s (final exists): %s",
+                        "Skipping refinement for script %s scene %s prompt %s (final exists): %s",
                         script_id,
                         scene_number,
+                        prompt_number,
                         final_path,
                     )
                     skipped += 1
                     continue
 
-                key = (script_id, scene_number)
+                key = (script_id, scene_number, prompt_number)
                 if key in latent_handoffs:
                     image_input = latent_handoffs[key]
                 else:
                     raw_path = scene_raw_output_path(
-                        script.script_id, scene_number, output_cfg
+                        script.script_id,
+                        scene_number,
+                        prompt_number,
+                        output_cfg,
                     )
                     image_input = Image.open(raw_path).convert("RGB")
 
+                seed_offset = scene_number * 10 + prompt_number
                 if ref_type == "sdxl_refiner":
                     refined = diffusion_wrapper.refine_scene_sdxl_refiner(
                         pipeline,
-                        scene["image_prompt"],
+                        image_prompt,
                         gen_cfg,
                         ref_cfg,
                         pipeline_cfg,
                         image_input,
-                        seed_offset=scene_number,
+                        seed_offset=seed_offset,
                     )
                 else:
                     if not isinstance(image_input, Image.Image):
                         raise TypeError("img2img refinement requires a PIL image input")
                     refined = diffusion_wrapper.refine_scene_img2img(
                         pipeline,
-                        scene["image_prompt"],
+                        image_prompt,
                         gen_cfg,
                         ref_cfg,
                         pipeline_type=pipeline_type,
                         pipeline_cfg=pipeline_cfg,
                         image=image_input,
-                        seed_offset=scene_number,
+                        seed_offset=seed_offset,
                     )
 
                 final_path.parent.mkdir(parents=True, exist_ok=True)
                 refined.save(final_path)
                 logger.info(
-                    "Saved refined image for script %s scene %s to %s",
+                    "Saved refined image for script %s scene %s prompt %s to %s",
                     script_id,
                     scene_number,
+                    prompt_number,
                     final_path,
                 )
                 written += 1

@@ -12,8 +12,8 @@ from utils.llm_helper import (
 )
 from utils.schema import (
     Scene,
+    SceneOutlineConfig,
     Script,
-    SceneConfig,
     resolve_path,
 )
 
@@ -23,11 +23,12 @@ def run_stage(
     model,
     sampling_params,
     tokenizer,
-    scripts: list[Script],
-    config: SceneConfig,
+    config: SceneOutlineConfig,
     enable_thinking: bool = False,
 ) -> list[Script]:
-    logger.info("Beginning stage 3 (scene generation)")
+    logger.info("Beginning stage 3 (scene outline generation)")
+    scripts = Script.read_all(config.script_path)
+    logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
     logger.info("Running vLLM generate for %s scripts", len(scripts))
     start = time.perf_counter()
 
@@ -42,7 +43,7 @@ def run_stage(
             f"{missing_ids}"
         )
 
-    scripts = generate_scenes(
+    scripts = generate_scene_outlines(
         logger,
         model,
         scripts,
@@ -52,16 +53,20 @@ def run_stage(
         enable_thinking=enable_thinking,
     )
 
+    for script in scripts:
+        script.save(config.script_path)
+    logger.info("Saved %s scripts to %s", len(scripts), config.script_path)
+
     elapsed = time.perf_counter() - start
     logger.info("Stage 3 total time: %.2fs", elapsed)
     return scripts
 
 
-def generate_scenes(
+def generate_scene_outlines(
     logger: logging.Logger,
     model,
     scripts: list[Script],
-    config: SceneConfig,
+    config: SceneOutlineConfig,
     sampling_params,
     tokenizer,
     enable_thinking: bool = False,
@@ -84,7 +89,7 @@ def generate_scenes(
         )
         for attempt in range(1, max_attempts + 1):
             logger.info(
-                "Script %s — submitting scene prompt to vLLM (attempt %s/%s)",
+                "Script %s — submitting scene outline prompt to vLLM (attempt %s/%s)",
                 script.script_id,
                 attempt,
                 max_attempts,
@@ -108,7 +113,7 @@ def generate_scenes(
             except ValueError as exc:
                 if attempt < max_attempts:
                     logger.warning(
-                        "Failed to parse scenes for script %s (attempt %s/%s): %s",
+                        "Failed to parse scene outlines for script %s (attempt %s/%s): %s",
                         script.script_id,
                         attempt,
                         max_attempts,
@@ -126,7 +131,7 @@ def generate_scenes(
                     answer_text,
                 )
                 raise ValueError(
-                    f"failed to parse scenes for script {script.script_id}: {exc}"
+                    f"failed to parse scene outlines for script {script.script_id}: {exc}"
                 ) from exc
 
     return scripts
@@ -141,7 +146,7 @@ def _format_prompt(
 ) -> str:
     payload = script.prompt_payload()
     user_prompt = (
-        f"Here is a story item JSON object. Produce exactly {num_scenes} scenes as a flat JSON array of scene objects ordered by scene_number starting at 0.\n"
+        f"Here is a story item JSON object. Produce exactly {num_scenes} scene outline objects as a flat JSON array ordered by scene_number starting at 0.\n"
         "Use thinking/reasoning if helpful, then output ONLY a complete JSON array that starts with `[` and ends with `]`.\n"
         + json.dumps(payload, ensure_ascii=False)
     )
@@ -158,7 +163,7 @@ def _format_prompt(
 
 
 def parse_scenes_from_text(text: str, num_scenes: int) -> list[Scene]:
-    """Parse LLM text into a validated flat scene list."""
+    """Parse LLM text into a validated flat scene outline list."""
     try:
         payload = parse_json_array(text)
     except (json.JSONDecodeError, ValueError) as exc:

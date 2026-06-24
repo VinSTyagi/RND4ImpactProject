@@ -25,11 +25,17 @@ title_config:
   prompt_path: script_setup/prompts/stage_2.md
   script_path: data/
 
-scene_config:
+scene_outline_config:
   num_scenes: 7
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
 
-image_config:
+scene_content_config:
   prompt_path: script_setup/prompts/stage_4.md
+  script_path: data/
+
+image_config:
+  min_prompts: 1
+  max_prompts: 5
+  prompt_path: script_setup/prompts/stage_5.md
   script_path: data/

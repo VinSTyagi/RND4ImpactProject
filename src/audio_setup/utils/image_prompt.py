@@ -1,4 +1,4 @@
-"""Normalize SD image prompts for CLIP token limits (script_setup stage 5)."""
+"""Normalize SD image prompts for CLIP token limits (audio_setup)."""
 
 from __future__ import annotations
 

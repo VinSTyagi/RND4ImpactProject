@@ -40,6 +40,6 @@ output_config:
   script_path: data/
   raw_subdir: raw_images
   output_subdir: refined_images
-  filename_template: "scene_{scene_number:02d}.png"
+  filename_template: "scene_{scene_number}_{prompt_number}.png"
   save_raw: true
   skip_existing: true

@@ -96,6 +96,7 @@ class ImagePrompt(TypedDict):
 class Scene(TypedDict):
     scene_number: int
     scene_title: str
+    scene_content: list[tuple[str, str]]
     act: str
     setting: str
     characters: list[str]
@@ -104,11 +105,53 @@ class Scene(TypedDict):
     emotional_beat: str
     character_change: str
     ends_on: str
-    image_prompt: ImagePrompt | None
+    image_prompt: list[ImagePrompt] | None
 
 
-def scene_payload(scene: Scene) -> dict[str, str]:
+def _serialize_scene_content(
+    content: list[tuple[str, str]],
+) -> list[list[str]]:
+    return [[character, text] for character, text in content]
+
+
+def scene_outline_payload(scene: Scene) -> dict[str, Any]:
+    """Outline fields only, for stage 4 prompts."""
     return {name: scene[name] for name in _SCENE_FIELDS}
+
+
+def scene_payload(scene: Scene) -> dict[str, Any]:
+    """Outline plus scene_content, for stage 5 image-prompt prompts."""
+    payload = scene_outline_payload(scene)
+    payload["scene_content"] = _serialize_scene_content(scene.get("scene_content") or [])
+    return payload
+
+
+def parse_scene_content(data: Any) -> list[tuple[str, str]]:
+    """Validate scene_content from LLM output or JSON."""
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        raise TypeError("scene_content must be an array")
+    content: list[tuple[str, str]] = []
+    for index, item in enumerate(data):
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            character = str(item[0]).strip()
+            text = str(item[1])
+            if not character:
+                raise ValueError(f"scene_content[{index}]: character name must be non-empty")
+            content.append((character, text))
+            continue
+        if isinstance(item, dict):
+            character = str(item.get("character") or item.get("speaker") or "").strip()
+            text = str(item.get("text") or item.get("line") or "")
+            if not character:
+                raise ValueError(f"scene_content[{index}]: character name must be non-empty")
+            content.append((character, text))
+            continue
+        raise ValueError(
+            f"scene_content[{index}] must be a 2-element array or object with character/text"
+        )
+    return content
 
 
 @dataclass
@@ -167,11 +210,10 @@ class Script:
         if not isinstance(scene_number, int):
             raise TypeError("scene_number must be an integer")
 
+        scene_content = parse_scene_content(data.get("scene_content"))
+
         image_prompt_data = data.get("image_prompt")
-        if image_prompt_data is None:
-            scene_image_prompt = None
-        else:
-            scene_image_prompt = cls.parse_img_prompt_dict(image_prompt_data)
+        scene_image_prompt = cls.parse_img_prompt_list(image_prompt_data)
 
         scene_characters = [
             str(name).strip() for name in characters if str(name).strip()
@@ -184,6 +226,7 @@ class Script:
             "act": act,
             "characters": scene_characters,
             "scene_title": str(data["scene_title"]).strip(),
+            "scene_content": scene_content,
             "setting": str(data["setting"]).strip(),
             "summary": str(data["summary"]).strip(),
             "conflict": str(data["conflict"]).strip(),
@@ -253,19 +296,77 @@ class Script:
         return normalized  # type: ignore[return-value]
 
     @classmethod
-    def attach_image_prompts(
-        cls, scenes: list[Scene], image_prompts: list[ImagePrompt]
-    ) -> list[Scene]:
-        """Return scenes with image_prompt set from a parallel prompt list."""
-        if len(scenes) != len(image_prompts):
+    def parse_img_prompt_list(
+        cls,
+        data: Any,
+        *,
+        min_prompts: int = 0,
+        max_prompts: int = 5,
+    ) -> list[ImagePrompt] | None:
+        """Validate null, a single prompt object, or a list of prompt objects."""
+        if data is None:
+            return None
+        if isinstance(data, dict):
+            prompts = [cls.parse_img_prompt_dict(data)]
+        elif isinstance(data, list):
+            if not data:
+                raise ValueError("image_prompt must be null or a non-empty array")
+            prompts = [cls.parse_img_prompt_dict(item) for item in data]
+        else:
+            raise TypeError(f"image_prompt must be an object, array, or null, got {type(data).__name__}")
+
+        if min_prompts and len(prompts) < min_prompts:
             raise ValueError(
-                f"expected {len(scenes)} image prompt(s) but received "
-                f"{len(image_prompts)}"
+                f"expected at least {min_prompts} image prompt(s) but parsed {len(prompts)}"
+            )
+        if max_prompts and len(prompts) > max_prompts:
+            raise ValueError(
+                f"expected at most {max_prompts} image prompt(s) but parsed {len(prompts)}"
+            )
+        return prompts
+
+    @classmethod
+    def attach_scene_image_prompts(
+        cls,
+        scenes: list[Scene],
+        prompts_by_scene: list[list[ImagePrompt]],
+        *,
+        min_prompts: int = 1,
+        max_prompts: int = 5,
+    ) -> list[Scene]:
+        """Return scenes with image_prompt set from per-scene prompt lists."""
+        if len(scenes) != len(prompts_by_scene):
+            raise ValueError(
+                f"expected {len(scenes)} scene prompt list(s) but received "
+                f"{len(prompts_by_scene)}"
             )
         updated: list[Scene] = []
-        for scene, image_prompt in zip(scenes, image_prompts):
-            updated.append({**scene, "image_prompt": image_prompt})
+        for scene_index, (scene, prompts) in enumerate(zip(scenes, prompts_by_scene)):
+            count = len(prompts)
+            if count < min_prompts or count > max_prompts:
+                raise ValueError(
+                    f"scene {scene_index}: expected {min_prompts}-{max_prompts} "
+                    f"image prompt(s) but received {count}"
+                )
+            updated.append({**scene, "image_prompt": prompts})
         return updated
+
+    @classmethod
+    def merge_scene_content(
+        cls,
+        scenes: list[Scene],
+        scene_contents: list[list[tuple[str, str]]],
+    ) -> list[Scene]:
+        """Return scenes with scene_content filled from a parallel content list."""
+        if len(scenes) != len(scene_contents):
+            raise ValueError(
+                f"expected {len(scenes)} scene_content list(s) but received "
+                f"{len(scene_contents)}"
+            )
+        return [
+            {**scene, "scene_content": content}
+            for scene, content in zip(scenes, scene_contents)
+        ]
 
     def prompt_payload(self) -> dict[str, str]:
         """Story fields plus title, for stage 3 prompts."""
@@ -276,11 +377,20 @@ class Script:
         return payload
 
     def to_json(self) -> dict[str, Any]:
+        scenes_out: list[dict[str, Any]] | None = None
+        if self.script_scenes is not None:
+            scenes_out = []
+            for scene in self.script_scenes:
+                scene_dict: dict[str, Any] = dict(scene)
+                scene_dict["scene_content"] = _serialize_scene_content(
+                    scene.get("scene_content") or []
+                )
+                scenes_out.append(scene_dict)
         return {
             "idea": self.idea,
             "script_id": str(self.script_id),
             "raw_title": self.raw_title,
-            "script_scenes": self.script_scenes,
+            "script_scenes": scenes_out,
         }
 
     @classmethod
@@ -378,15 +488,23 @@ class TitleConfig:
 
 
 @dataclass
-class SceneConfig:
+class SceneOutlineConfig:
     num_scenes: int = 5
     prompt_path: str = "script_setup/prompts/stage_3.md"
     script_path: str = "data/"
 
 
 @dataclass
-class ImagePromptConfig:
+class SceneContentConfig:
     prompt_path: str = "script_setup/prompts/stage_4.md"
+    script_path: str = "data/"
+
+
+@dataclass
+class ImagePromptConfig:
+    min_prompts: int = 1
+    max_prompts: int = 5
+    prompt_path: str = "script_setup/prompts/stage_5.md"
     script_path: str = "data/"
 
 
@@ -395,7 +513,8 @@ class PipelineConfig:
     global_vllm_config: VLLMModelConfig = field(default_factory=VLLMModelConfig)
     idea_config: IdeaConfig = field(default_factory=IdeaConfig)
     title_config: TitleConfig = field(default_factory=TitleConfig)
-    scene_config: SceneConfig = field(default_factory=SceneConfig)
+    scene_outline_config: SceneOutlineConfig = field(default_factory=SceneOutlineConfig)
+    scene_content_config: SceneContentConfig = field(default_factory=SceneContentConfig)
     image_config: ImagePromptConfig = field(default_factory=ImagePromptConfig)
 
 
@@ -457,10 +576,16 @@ def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
 
 def load_config(path: str) -> PipelineConfig:
     data = _load_yaml(path)
+    scene_outline_section = _section(data, "scene_outline_config") or _section(
+        data, "scene_config"
+    )
     return PipelineConfig(
         global_vllm_config=VLLMModelConfig(**_section(data, "global_vllm_config")),
         idea_config=IdeaConfig(**_section(data, "idea_config")),
         title_config=TitleConfig(**_section(data, "title_config")),
-        scene_config=SceneConfig(**_section(data, "scene_config")),
+        scene_outline_config=SceneOutlineConfig(**scene_outline_section),
+        scene_content_config=SceneContentConfig(
+            **_section(data, "scene_content_config")
+        ),
         image_config=ImagePromptConfig(**_section(data, "image_config")),
     )

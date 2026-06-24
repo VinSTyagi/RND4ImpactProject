@@ -54,16 +54,16 @@ Face cache volume (`rnd4impact_script_hf_cache` / `rnd4impact_image_hf_cache` /
 
 | Setup                                          | Image                       | Purpose                           |
 | ---------------------------------------------- | --------------------------- | --------------------------------- |
-| `[docker/script_setup/](docker/script_setup/)` | `rnd4impact-script:cuda124` | vLLM script pipeline (stages 1–4) |
+| `[docker/script_setup/](docker/script_setup/)` | `rnd4impact-script:cuda124` | vLLM script pipeline (stages 1–5) |
 | `[docker/image_setup/](docker/image_setup/)`   | `rnd4impact-image:cuda124`  | SDXL scene image generation       |
 | `[docker/vid_setup/](docker/vid_setup/)`       | `rnd4impact-vid:cuda124`    | Video diffusion (SVD) generation  |
 
 
 vLLM ships compiled CUDA extensions (`vllm._C`) that are **Linux-only**, so
 `script_setup` cannot run on native Windows (`ModuleNotFoundError: No module named 'vllm._C'`). Run it in the script_setup container. **image_setup** reads
-`data/<script_id>/script.json` (with `image_prompt` from script_setup stage 4)
-and writes PNGs to `data/<script_id>/refined_images/`. **vid_setup** reads those
-PNGs and writes scene videos to `data/<script_id>/raw_videos/`.
+`data/<script_id>/script.json` (with `image_prompt` from script_setup stage 5)
+and writes PNGs to `data/<script_id>/<scene_number>/refined_images/`. **vid_setup** reads those
+PNGs and writes scene videos to `data/<script_id>/<scene_number>/raw_videos/`.
 
 ### Prerequisites
 
@@ -121,7 +121,7 @@ Linux during the image build. Rebuild after changing a setup `pyproject.toml` pi
 
 Each pipeline is isolated: its own `pyproject.toml`, source tree, and Docker
 image. Cross-pipeline handoff uses `data/<script_id>/` artifacts (`script.json`,
-`refined_images/`, `raw_videos/`, etc.).
+`<scene_number>/raw_images/`, `<scene_number>/refined_images/`, `<scene_number>/raw_videos/`, etc.).
 
 For local development, sync one workspace package or the whole workspace from the
 repo root:
@@ -170,12 +170,26 @@ docker compose run --rm script-setup \
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --2
 
+# Stages 3–5: scene outlines, scene scripts, image prompts (or use --all)
+docker compose run --rm script-setup \
+  python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --3 --4 --5
+
 # All implemented stages (default `script-setup` command)
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --all
 ```
 
-Stage 4 writes `image_prompt` fields into `script.json` (text prompts for
+Pipeline stages:
+
+| Stage | Purpose |
+| ----- | ------- |
+| **1** | Story ideas |
+| **2** | Titles |
+| **3** | Scene outlines |
+| **4** | Scene scripts / `scene_content` |
+| **5** | SDXL `image_prompt` lists (1–5 per scene) |
+
+Stage 5 writes `image_prompt` arrays into `script.json` (text prompts for
 SDXL, not PNGs). Running `docker compose run --rm script-setup` with no command
 override executes `--all`.
 
@@ -200,7 +214,7 @@ docker compose up jupyter    # http://localhost:8888
 
 ### image_setup — generate and refine scene images
 
-Run **after** script_setup stage 4 (or `--all`) has populated `image_prompt`
+Run **after** script_setup stage 5 (or `--all`) has populated `image_prompt`
 on every scene in `data/<script_id>/script.json`.
 
 The image_setup runner has two stages (like script_setup):
@@ -208,8 +222,8 @@ The image_setup runner has two stages (like script_setup):
 
 | Stage | Purpose                                             | Output path                                |
 | ----- | --------------------------------------------------- | ------------------------------------------ |
-| **1** | Raw SDXL generation                                 | `data/<script_id>/images_raw/scene_XX.png` |
-| **2** | Refinement (`sdxl_refiner` or `img2img` per config) | `data/<script_id>/refined_images/scene_XX.png` |
+| **1** | Raw SDXL generation                                 | `data/<script_id>/<scene>/raw_images/scene_<scene>_<prompt>.png` |
+| **2** | Refinement (`sdxl_refiner` or `img2img` per config) | `data/<script_id>/<scene>/refined_images/scene_<scene>_<prompt>.png` |
 
 
 Default Docker command runs `--all` (both stages). Turbo config disables
@@ -356,7 +370,7 @@ forward chunking, VAE slicing/tiling, attention slicing, and `decode_chunk_size:
 For tighter budgets, lower `generation_config.width` / `height` (e.g. 512×288 →
 576×320 → 768×432).
 - LTX configs read `image_prompt` from `data/<script_id>/script.json` when present
-(run script_setup stage 4 first); otherwise `generation_config.prompt` is used.
+(run script_setup stage 5 first); otherwise `generation_config.prompt` is used.
 Same applies to SANA, CogVideoX, and Wan backends.
 Upscale is disabled in low-VRAM configs (enable only when you have headroom).
 

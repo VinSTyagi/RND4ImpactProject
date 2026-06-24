@@ -61,10 +61,6 @@ def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
 
     vcfg = pipeline_config.global_vllm_config
     title_cfg = pipeline_config.title_config
-    scripts = state.get("scripts")
-    if scripts is None:
-        scripts = Script.read_all(title_cfg.script_path)
-        logger.info("Loaded %s scripts from %s", len(scripts), title_cfg.script_path)
     with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
         tokenizer = model.get_tokenizer()
         scripts = stage_2.run_stage(
@@ -72,13 +68,9 @@ def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
             model,
             sampling_params,
             tokenizer,
-            scripts,
             title_cfg,
             enable_thinking=vcfg.enable_thinking,
         )
-    for script in scripts:
-        script.save(title_cfg.script_path)
-    logger.info("Saved %s scripts to %s", len(scripts), title_cfg.script_path)
     state["scripts"] = scripts
     return state
 
@@ -87,11 +79,7 @@ def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
     from utils import stage_3, vllm_wrapper
 
     vcfg = pipeline_config.global_vllm_config
-    scene_cfg = pipeline_config.scene_config
-    scripts = state.get("scripts")
-    if scripts is None:
-        scripts = Script.read_all(scene_cfg.script_path)
-        logger.info("Loaded %s scripts from %s", len(scripts), scene_cfg.script_path)
+    scene_cfg = pipeline_config.scene_outline_config
     with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
         tokenizer = model.get_tokenizer()
         scripts = stage_3.run_stage(
@@ -99,13 +87,9 @@ def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
             model,
             sampling_params,
             tokenizer,
-            scripts,
             scene_cfg,
             enable_thinking=vcfg.enable_thinking,
         )
-    for script in scripts:
-        script.save(scene_cfg.script_path)
-    logger.info("Saved %s scripts to %s", len(scripts), scene_cfg.script_path)
     state["scripts"] = scripts
     return state
 
@@ -114,13 +98,7 @@ def run_stage_4(pipeline_config: PipelineConfig, state: dict) -> dict:
     from utils import stage_4, vllm_wrapper
 
     vcfg = pipeline_config.global_vllm_config
-    img_prompt_cfg = pipeline_config.image_config
-    scripts = state.get("scripts")
-    if scripts is None:
-        scripts = Script.read_all(img_prompt_cfg.script_path)
-        logger.info(
-            "Loaded %s scripts from %s", len(scripts), img_prompt_cfg.script_path
-        )
+    content_cfg = pipeline_config.scene_content_config
     with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
         tokenizer = model.get_tokenizer()
         scripts = stage_4.run_stage(
@@ -128,13 +106,28 @@ def run_stage_4(pipeline_config: PipelineConfig, state: dict) -> dict:
             model,
             sampling_params,
             tokenizer,
-            scripts,
+            content_cfg,
+            enable_thinking=vcfg.enable_thinking,
+        )
+    state["scripts"] = scripts
+    return state
+
+
+def run_stage_5(pipeline_config: PipelineConfig, state: dict) -> dict:
+    from utils import stage_5, vllm_wrapper
+
+    vcfg = pipeline_config.global_vllm_config
+    img_prompt_cfg = pipeline_config.image_config
+    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
+        tokenizer = model.get_tokenizer()
+        scripts = stage_5.run_stage(
+            logger,
+            model,
+            sampling_params,
+            tokenizer,
             img_prompt_cfg,
             enable_thinking=vcfg.enable_thinking,
         )
-    for script in scripts:
-        script.save(img_prompt_cfg.script_path)
-    logger.info("Saved %s scripts to %s", len(scripts), img_prompt_cfg.script_path)
     state["scripts"] = scripts
     return state
 
@@ -146,6 +139,7 @@ STAGES: dict[int, StageRunner] = {
     2: run_stage_2,
     3: run_stage_3,
     4: run_stage_4,
+    5: run_stage_5,
 }
 
 

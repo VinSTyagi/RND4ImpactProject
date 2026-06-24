@@ -7,12 +7,36 @@ import torch
 from tqdm import tqdm
 
 from utils.schema import (
+    Script,
     VidSetupPipelineConfig,
     pipeline_needs_prompt,
     scene_paths_by_script,
+    validate_scripts_for_video,
 )
-from utils.script import Script, validate_scripts_for_video
 from utils.vid_diffuser_wrapper import generate_video_from_images, start_vid_diff_engine
+
+
+def _scripts_for_paths(
+    io_cfg,
+    paths_by_script: dict[str, list],
+) -> dict[str, Script]:
+    """Load script.json as Script objects for every story with scene images."""
+    if not paths_by_script:
+        return {}
+
+    scripts_by_id: dict[str, Script] = {}
+    for script in Script.read_all(io_cfg.script_path):
+        script_id = str(script.script_id)
+        if script_id in paths_by_script:
+            scripts_by_id[script_id] = script
+
+    missing = sorted(set(paths_by_script) - set(scripts_by_id))
+    if missing:
+        raise FileNotFoundError(
+            "script.json missing for script(s) with scene images: "
+            + ", ".join(missing)
+        )
+    return scripts_by_id
 
 
 def run_stage(
@@ -31,27 +55,19 @@ def run_stage(
         )
         return {"scripts": 0, "raw_written": 0, "raw_skipped": 0, "raw_failed": 0}
 
-    scripts_by_id: dict[str, Script] = {}
-    if pipeline_needs_prompt(pipeline_type):
-        scene_counts = {
+    scripts_by_id = _scripts_for_paths(io_cfg, paths_by_script)
+    logger.info(
+        "Loaded %s script(s) from %s",
+        len(scripts_by_id),
+        io_cfg.script_path,
+    )
+
+    needs_prompt = pipeline_needs_prompt(pipeline_type)
+    if needs_prompt:
+        prompt_counts = {
             script_id: len(scenes) for script_id, scenes in paths_by_script.items()
         }
-        try:
-            scripts_by_id = Script.load_by_ids(list(paths_by_script), io_cfg)
-        except FileNotFoundError as exc:
-            if (gen_cfg.prompt or "").strip():
-                logger.warning(
-                    "script.json missing for some scripts (%s); using "
-                    "generation_config prompt fallbacks",
-                    exc,
-                )
-            else:
-                raise ValueError(
-                    f"{exc}. Prompted backends require script.json with "
-                    "image_prompt or generation_config.prompt."
-                ) from exc
-        else:
-            validate_scripts_for_video(logger, scripts_by_id, scene_counts, gen_cfg)
+        validate_scripts_for_video(logger, scripts_by_id, prompt_counts, gen_cfg)
 
     written = 0
     skipped = 0
@@ -81,18 +97,21 @@ def run_stage(
         config.video_diffuser_config,
         config.quantization_config,
     ) as (pipeline, using_offload):
-        for script_id, scenes in paths_by_script.items():
-            script = scripts_by_id.get(script_id)
-            for scene_number, scene in tqdm(
-                enumerate(scenes),
+        for script_id, scene_paths in paths_by_script.items():
+            script = scripts_by_id[script_id]
+            for scene in tqdm(
+                scene_paths,
                 desc=f"Generating videos for script {script_id}",
-                total=len(scenes),
+                total=len(scene_paths),
             ):
+                scene_number = scene.scene_number
+                prompt_number = scene.prompt_number
                 if io_cfg.skip_existing and scene.raw_video.is_file():
                     logger.info(
-                        "Skipping script %s scene %s (output exists): %s",
+                        "Skipping script %s scene %s prompt %s (output exists): %s",
                         script_id,
                         scene_number,
+                        prompt_number,
                         scene.raw_video,
                     )
                     skipped += 1
@@ -101,15 +120,12 @@ def run_stage(
                 scene.raw_video.parent.mkdir(parents=True, exist_ok=True)
                 prompt = None
                 negative_prompt = None
-                if pipeline_needs_prompt(pipeline_type):
-                    if script is not None:
-                        prompt, negative_prompt = script.scene_prompts(
-                            scene_number,
-                            gen_cfg,
-                        )
-                    else:
-                        prompt = (gen_cfg.prompt or "").strip()
-                        negative_prompt = (gen_cfg.negative_prompt or "").strip()
+                if needs_prompt:
+                    prompt, negative_prompt = script.scene_prompts(
+                        scene_number,
+                        prompt_number,
+                        gen_cfg,
+                    )
 
                 try:
                     generate_video_from_images(
@@ -125,9 +141,10 @@ def run_stage(
                     )
                 except ValueError as exc:
                     logger.error(
-                        "Failed script %s scene %s: %s",
+                        "Failed script %s scene %s prompt %s: %s",
                         script_id,
                         scene_number,
+                        prompt_number,
                         exc,
                     )
                     failed += 1
@@ -136,9 +153,10 @@ def run_stage(
                     continue
 
                 logger.info(
-                    "Generated video for script %s scene %s -> %s",
+                    "Generated video for script %s scene %s prompt %s -> %s",
                     script_id,
                     scene_number,
+                    prompt_number,
                     scene.raw_video,
                 )
                 written += 1
