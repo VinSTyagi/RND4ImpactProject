@@ -371,9 +371,9 @@ comparison of lightweight image-to-video backends (SVD, LTX, SANA, CogVideoX, Wa
 forward chunking, VAE slicing/tiling, attention slicing, and `decode_chunk_size: 1`.
 For tighter budgets, lower `generation_config.width` / `height` (e.g. 512×288 →
 576×320 → 768×432).
-- LTX configs read `image_prompt` from `data/<script_id>/script.json` when present
-(run script_setup stage 5 first); otherwise `generation_config.prompt` is used.
-Same applies to SANA, CogVideoX, and Wan backends.
+- LTX configs read `image_prompt.positive_prompt` and `image_prompt.negative_prompt`
+from each scene's `data/<script_id>/<scene_number>/script.json` (run script_setup
+stage 5 first). SVD does not use text prompts.
 Upscale is disabled in low-VRAM configs (enable only when you have headroom).
 
 ## Virtual environments

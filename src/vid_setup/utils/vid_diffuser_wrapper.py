@@ -309,16 +309,14 @@ def generate_video_from_images(
         normalized_type = pipeline_type.strip().lower()
 
         if pipeline_needs_prompt(normalized_type):
-            resolved_prompt = (prompt or gen_config.prompt or "").strip()
+            resolved_prompt = (prompt or "").strip()
 
-            resolved_negative = (
-                negative_prompt or gen_config.negative_prompt or ""
-            ).strip()
+            resolved_negative = (negative_prompt or "").strip()
 
             if not resolved_prompt:
                 raise ValueError(
                     f"{normalized_type} generation requires prompt "
-                    "(set generation_config.prompt or populate image_prompt in script.json)"
+                    "(populate image_prompt.positive_prompt in script.json)"
                 )
 
             args["prompt"] = resolved_prompt

@@ -71,7 +71,7 @@ def run_stage(
         prompt_counts = {
             script_id: len(scenes) for script_id, scenes in paths_by_script.items()
         }
-        validate_scripts_for_video(logger, scene_scripts_by_id, prompt_counts, gen_cfg)
+        validate_scripts_for_video(logger, scene_scripts_by_id, prompt_counts)
 
     written = 0
     skipped = 0
@@ -137,7 +137,6 @@ def run_stage(
                     prompt, negative_prompt = scene_script.scene_prompts(
                         scene_number,
                         prompt_number,
-                        gen_cfg,
                     )
 
                 try:

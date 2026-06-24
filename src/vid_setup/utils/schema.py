@@ -61,31 +61,23 @@ _LTX_GENERATION_FIELDS = frozenset(
         "frame_rate",
         "decode_timestep",
         "decode_noise_scale",
-        "prompt",
-        "negative_prompt",
     }
 )
 _SANA_GENERATION_FIELDS = frozenset(
     {
         "guidance_scale",
-        "prompt",
-        "negative_prompt",
         "use_resolution_binning",
     }
 )
 _COGVIDEOX_GENERATION_FIELDS = frozenset(
     {
         "guidance_scale",
-        "prompt",
-        "negative_prompt",
         "use_dynamic_cfg",
     }
 )
 _WAN_GENERATION_FIELDS = frozenset(
     {
         "guidance_scale",
-        "prompt",
-        "negative_prompt",
     }
 )
 
@@ -148,8 +140,6 @@ class GenerationConfig:
     frame_rate: int | None = None
     decode_timestep: float | None = None
     decode_noise_scale: float | None = None
-    prompt: str | None = None
-    negative_prompt: str | None = None
 
     # Sana-specific (optional)
     use_resolution_binning: bool | None = None
@@ -326,33 +316,29 @@ class SceneScript:
         self,
         scene_number: int,
         prompt_number: int,
-        gen_cfg: GenerationConfig,
     ) -> tuple[str, str]:
-        """Positive/negative prompts for one scene prompt from image_prompt, with config fallback."""
-        default_positive = (gen_cfg.prompt or "").strip()
-        default_negative = (gen_cfg.negative_prompt or "").strip()
-
+        """Positive/negative prompts for one scene prompt from image_prompt in script.json."""
         scene = self.scene
         if scene is None or scene.get("scene_number") != scene_number:
-            return default_positive, default_negative
+            return "", ""
 
         image_prompt_data = scene.get("image_prompt")
         if image_prompt_data is None:
-            return default_positive, default_negative
+            return "", ""
 
         if isinstance(image_prompt_data, dict):
             prompts = [image_prompt_data]
         elif isinstance(image_prompt_data, list):
             prompts = image_prompt_data
         else:
-            return default_positive, default_negative
+            return "", ""
 
         if prompt_number < 0 or prompt_number >= len(prompts):
-            return default_positive, default_negative
+            return "", ""
 
         image_prompt = prompts[prompt_number]
         if not isinstance(image_prompt, dict):
-            return default_positive, default_negative
+            return "", ""
 
         positive = format_prompt_tags(
             _coerce_prompt_tags(image_prompt.get("positive_prompt"))
@@ -360,7 +346,7 @@ class SceneScript:
         negative = format_prompt_tags(
             _coerce_prompt_tags(image_prompt.get("negative_prompt"))
         )
-        return positive or default_positive, negative or default_negative
+        return positive, negative
 
 
 Script = SceneScript
@@ -370,9 +356,8 @@ def validate_scripts_for_video(
     log: logging.Logger,
     scene_scripts_by_id: dict[str, list[SceneScript]],
     prompt_counts: dict[str, int],
-    gen_cfg: GenerationConfig,
 ) -> None:
-    """Ensure every scene prompt has a positive prompt before loading a prompted video model."""
+    """Ensure every scene prompt has image_prompt tags before loading a prompted video model."""
     errors: list[str] = []
     for script_id, total_prompts in prompt_counts.items():
         scene_scripts = scene_scripts_by_id.get(script_id)
@@ -391,16 +376,13 @@ def validate_scripts_for_video(
             else:
                 prompt_items = []
             for prompt_number in range(len(prompt_items)):
-                positive, _ = scene_script.scene_prompts(
-                    scene_number, prompt_number, gen_cfg
-                )
+                positive, _ = scene_script.scene_prompts(scene_number, prompt_number)
                 if not positive:
                     errors.append(
                         f"{script_id}: scene {scene_number} prompt {prompt_number} "
                         "has no positive prompt "
                         "(set image_prompt.positive_prompt in "
-                        "data/<script_id>/<scene>/script.json or "
-                        "generation_config.prompt)"
+                        "data/<script_id>/<scene>/script.json)"
                     )
                 checked += 1
         if checked != total_prompts:

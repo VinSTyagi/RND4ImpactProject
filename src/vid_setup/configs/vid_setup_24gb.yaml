@@ -21,8 +21,6 @@ generation_config:
   height: 480
   frame_rate: 16
   guidance_scale: 5.0
-  prompt: "cinematic motion, smooth natural movement, high quality"
-  negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
 
 io_config:
   script_path: data/

@@ -8,21 +8,19 @@ video_diffuser_config:
 quantization_config:
   torch_dtype: bfloat16
   enable_sequential_cpu_offload: false
-  enable_model_cpu_offload: true
+  enable_model_cpu_offload: false
   enable_vae_slicing: true
   enable_vae_tiling: true
   enable_attention_slicing: true
   enable_xformers: false
 
 generation_config:
-  num_inference_steps: 50
-  num_frames: 81
-  width: 1280
-  height: 704
+  num_inference_steps: 45
+  num_frames: 45
+  width: 1024
+  height: 576
   frame_rate: 24
   guidance_scale: 5.0
-  prompt: "cinematic motion, smooth natural movement, high quality"
-  negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text"
 
 io_config:
   script_path: data/
