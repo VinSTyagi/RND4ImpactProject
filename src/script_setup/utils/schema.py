@@ -584,17 +584,6 @@ def load_config(path: str) -> PipelineConfig:
         data, "scene_config"
     )
     return PipelineConfig(
-<<<<<<< HEAD
-        global_vllm_config=VLLMModelConfig(
-            **_dataclass_kwargs(VLLMModelConfig, _section(data, "global_vllm_config"))
-        ),
-        idea_config=IdeaConfig(**_dataclass_kwargs(IdeaConfig, _section(data, "idea_config"))),
-        title_config=TitleConfig(**_dataclass_kwargs(TitleConfig, _section(data, "title_config"))),
-        scene_config=SceneConfig(**_dataclass_kwargs(SceneConfig, _section(data, "scene_config"))),
-        image_config=ImagePromptConfig(
-            **_dataclass_kwargs(ImagePromptConfig, _section(data, "image_config"))
-        ),
-=======
         global_vllm_config=VLLMModelConfig(**_section(data, "global_vllm_config")),
         idea_config=IdeaConfig(**_section(data, "idea_config")),
         title_config=TitleConfig(**_section(data, "title_config")),
@@ -603,5 +592,4 @@ def load_config(path: str) -> PipelineConfig:
             **_section(data, "scene_content_config")
         ),
         image_config=ImagePromptConfig(**_section(data, "image_config")),
->>>>>>> 50234f7d874a79315f043b5b26b599fff0f293c9
     )
