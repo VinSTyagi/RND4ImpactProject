@@ -11,7 +11,7 @@ from utils.schema import VidSetupPipelineConfig, load_config
 
 _VID_SETUP_DIR = Path(__file__).resolve().parent
 _SRC_ROOT = _VID_SETUP_DIR.parent
-_DEFAULT_CONFIG = Path("configs/vid_setup_svd.yaml")
+_DEFAULT_CONFIG = Path("configs/vid_setup_12gb.yaml")
 _LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
 

@@ -7,7 +7,7 @@ from PIL import Image
 from utils import diffusion_wrapper
 from utils.schema import (
     ImageSetupPipelineConfig,
-    Script,
+    SceneScript,
     refinement_active,
     scene_output_path,
     scene_raw_output_path,
@@ -18,18 +18,18 @@ from utils.stage_1 import iter_scene_prompts, validate_scripts
 
 def _validate_raw_inputs(
     config: ImageSetupPipelineConfig,
-    scripts: list[Script],
+    scene_scripts: list[SceneScript],
     latent_handoffs: dict[tuple[str, int, int], object],
 ) -> None:
     output_cfg = config.output_config
     missing: list[str] = []
-    for script in scripts:
-        for _, scene, prompt_number, _ in iter_scene_prompts(script):
-            key = (str(script.script_id), scene["scene_number"], prompt_number)
+    for scene_script in scene_scripts:
+        for _, scene, prompt_number, _ in iter_scene_prompts(scene_script):
+            key = (str(scene_script.script_id), scene["scene_number"], prompt_number)
             if key in latent_handoffs:
                 continue
             raw_path = scene_raw_output_path(
-                script.script_id,
+                scene_script.script_id,
                 scene["scene_number"],
                 prompt_number,
                 output_cfg,
@@ -61,18 +61,22 @@ def run_stage(
     if not refinement_active(config):
         logger.info("Refinement disabled (type=%s); skipping stage 2", ref_cfg.type)
         return {
-            "scripts": 0,
+            "scene_scripts": 0,
             "refined_written": 0,
             "refined_skipped": 0,
         }
 
     ref_type = ref_cfg.type.strip().lower()
-    scripts = Script.read_all(output_cfg.script_path)
-    logger.info("Loaded %s scripts from %s", len(scripts), output_cfg.script_path)
-    validate_scripts(scripts)
+    scene_scripts = SceneScript.read_all(output_cfg.script_path)
+    logger.info(
+        "Loaded %s scene script(s) from %s",
+        len(scene_scripts),
+        output_cfg.script_path,
+    )
+    validate_scripts(scene_scripts)
 
     latent_handoffs: dict[tuple[str, int, int], object] = state.get("latent_handoffs", {})
-    _validate_raw_inputs(config, scripts, latent_handoffs)
+    _validate_raw_inputs(config, scene_scripts, latent_handoffs)
 
     if ref_type == "sdxl_refiner":
         if not family.supports_refiner:
@@ -100,13 +104,14 @@ def run_stage(
         config.quantization_config,
         gen_cfg,
         scheduler=scheduler,
+        variant=ref_cfg.variant if ref_type == "sdxl_refiner" else None,
     ) as pipeline:
-        for script in scripts:
-            for _, scene, prompt_number, image_prompt in iter_scene_prompts(script):
+        for scene_script in scene_scripts:
+            for _, scene, prompt_number, image_prompt in iter_scene_prompts(scene_script):
                 scene_number = scene["scene_number"]
-                script_id = str(script.script_id)
+                script_id = str(scene_script.script_id)
                 final_path = scene_output_path(
-                    script.script_id,
+                    scene_script.script_id,
                     scene_number,
                     prompt_number,
                     output_cfg,
@@ -128,7 +133,7 @@ def run_stage(
                     image_input = latent_handoffs[key]
                 else:
                     raw_path = scene_raw_output_path(
-                        script.script_id,
+                        scene_script.script_id,
                         scene_number,
                         prompt_number,
                         output_cfg,
@@ -172,7 +177,7 @@ def run_stage(
                 written += 1
 
     return {
-        "scripts": len(scripts),
+        "scene_scripts": len(scene_scripts),
         "refined_written": written,
         "refined_skipped": skipped,
     }

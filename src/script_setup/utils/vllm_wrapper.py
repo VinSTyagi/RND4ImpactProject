@@ -61,6 +61,7 @@ def load_vllm_engine(
 
 
 def cleanup():
+    """Tear down vLLM distributed state and release GPU memory after the session."""
     destroy_model_parallel()
     destroy_distributed_environment()
     with contextlib.suppress(AssertionError):
@@ -68,6 +69,18 @@ def cleanup():
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def cleanup_after_stage() -> None:
+    """Release transient allocations between stages without unloading the vLLM model."""
+    gc.collect()
+    if torch.cuda.is_available():
+        with contextlib.suppress(RuntimeError):
+            torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+        with contextlib.suppress(Exception):
+            torch.cuda.ipc_collect()
+    logger.debug("Stage cleanup complete (model remains loaded)")
 
 
 def sample_params(
@@ -102,7 +115,11 @@ def sample_params(
 
 @contextlib.contextmanager
 def vllm_session(vcfg: VLLMModelConfig):
-    """Load a vLLM engine for one stage and guarantee cleanup on exit."""
+    """Load a vLLM engine and guarantee cleanup on exit.
+
+    The runner keeps one session open across all triggered stages so the model
+    is loaded once and shut down after the last stage completes.
+    """
     model = load_vllm_engine(
         dtype="auto",
         max_model_len=vcfg.max_model_len,

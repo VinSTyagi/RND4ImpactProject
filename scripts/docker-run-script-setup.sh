@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_DIR="$ROOT/docker/script_setup"
-CONFIG="${SCRIPT_SETUP_CONFIG:-configs/script_setup_qwen3_4b.yaml}"
+CONFIG="${SCRIPT_SETUP_CONFIG:-configs/script_setup_12gb.yaml}"
 BUILD=0
 RUNNER_ARGS=()
 
@@ -17,7 +17,7 @@ and are cached in the compose hf_cache volume (rnd4impact_script_hf_cache).
 
 Options:
   --build              Run docker compose build before starting the container
-  --config PATH        YAML config inside the container (default: configs/script_setup_qwen3_4b.yaml)
+  --config PATH        YAML config inside the container (default: configs/script_setup_12gb.yaml)
   --all                Run all stages (default)
   --1, --2, --3, --4   Run only the given stage
   -h, --help           Show this help
@@ -27,7 +27,7 @@ Environment:
 
 Examples:
   ./scripts/docker-run-script-setup.sh --build
-  ./scripts/docker-run-script-setup.sh --config configs/script_setup_qwen3_4b.yaml --all
+  ./scripts/docker-run-script-setup.sh --config configs/script_setup_12gb.yaml --all
   ./scripts/docker-run-script-setup.sh --4
 EOF
 }

@@ -60,10 +60,10 @@ Face cache volume (`rnd4impact_script_hf_cache` / `rnd4impact_image_hf_cache` /
 
 
 vLLM ships compiled CUDA extensions (`vllm._C`) that are **Linux-only**, so
-`script_setup` cannot run on native Windows (`ModuleNotFoundError: No module named 'vllm._C'`). Run it in the script_setup container. **image_setup** reads
-`data/<script_id>/script.json` (with `image_prompt` from script_setup stage 5)
-and writes PNGs to `data/<script_id>/<scene_number>/refined_images/`. **vid_setup** reads those
-PNGs and writes scene videos to `data/<script_id>/<scene_number>/raw_videos/`.
+`script_setup` cannot run on native Windows (`ModuleNotFoundError: No module named 'vllm._C'`). Run it in the script_setup container. **image_setup** reads `data/<script_id>/<scene>/script.json` (with `image_prompt`
+from script_setup stage 5) and writes PNGs to
+`data/<script_id>/<scene_number>/refined_images/`. **vid_setup** reads those PNGs
+and writes scene videos to `data/<script_id>/<scene_number>/raw_videos/`.
 
 ### Prerequisites
 
@@ -119,9 +119,10 @@ The first build is large (CUDA + ML stack). Each Dockerfile runs
 workspace root manifest is **not** copied into images). Dependencies re-resolve on
 Linux during the image build. Rebuild after changing a setup `pyproject.toml` pin.
 
-Each pipeline is isolated: its own `pyproject.toml`, source tree, and Docker
-image. Cross-pipeline handoff uses `data/<script_id>/` artifacts (`script.json`,
-`<scene_number>/raw_images/`, `<scene_number>/refined_images/`, `<scene_number>/raw_videos/`, etc.).
+Each setup is isolated: its own `pyproject.toml`, source tree, and Docker
+image. Cross-setup handoff uses `data/<script_id>/` artifacts (`idea.json`,
+`<scene_number>/script.json`, `<scene_number>/raw_images/`,
+`<scene_number>/refined_images/`, `<scene_number>/raw_videos/`, etc.).
 
 For local development, sync one workspace package or the whole workspace from the
 repo root:
@@ -154,7 +155,8 @@ Expect `2.6.0+cu124` and `True` when an NVIDIA driver is installed.
 ### script_setup — run pipeline stages
 
 The runner takes one flag per stage; combine them freely or use `--all`. All
-stages share one vLLM config (`global_vllm_config` in the YAML).
+selected stages share one vLLM load (`global_vllm_config` in the YAML): the model
+stays in memory across stages and shuts down only after the last stage finishes.
 
 ```bash
 cd docker/script_setup
@@ -162,11 +164,11 @@ docker compose build
 docker compose run --rm script-setup        # --all (default command)
 # or: ./scripts/docker-run-script-setup.sh --build
 
-# Stage 1 only: idea generation -> data/<script_id>/script.json
+# Stage 1 only: idea generation -> data/<script_id>/idea.json
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --1
 
-# Stage 2 only: titles from existing data/<script_id>/script.json
+# Stage 2 only: titles from existing data/<script_id>/idea.json
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --2
 
@@ -174,7 +176,7 @@ docker compose run --rm script-setup \
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --3 --4 --5
 
-# All implemented stages (default `script-setup` command)
+# All implemented stages — one vLLM session for stages 1–5
 docker compose run --rm script-setup \
   python script_setup/script_setup_runner.py --config configs/script_setup_qwen3_4b.yaml --all
 ```
@@ -189,9 +191,9 @@ Pipeline stages:
 | **4** | Scene scripts / `scene_content` |
 | **5** | SDXL `image_prompt` lists (1–5 per scene) |
 
-Stage 5 writes `image_prompt` arrays into `script.json` (text prompts for
-SDXL, not PNGs). Running `docker compose run --rm script-setup` with no command
-override executes `--all`.
+Stage 5 writes `image_prompt` arrays into `data/<script_id>/<scene>/script.json`
+(text prompts for SDXL, not PNGs). Running `docker compose run --rm script-setup`
+with no command override executes `--all`.
 
 **Offline inference and model cache** — copy
 `[docker/script_setup/.env.example](docker/script_setup/.env.example)` to

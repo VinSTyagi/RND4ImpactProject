@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_DIR="$ROOT/docker/image_setup"
-CONFIG="${IMAGE_SETUP_CONFIG:-configs/image_setup_sdxl_fp16.yaml}"
+CONFIG="${IMAGE_SETUP_CONFIG:-configs/image_setup_12gb.yaml}"
 BUILD=0
 RUNNER_ARGS=()
 
@@ -17,7 +17,7 @@ and are cached in the `rnd4impact_image_hf_cache` Docker volume.
 
 Options:
   --build              Run docker compose build before starting the container
-  --config PATH        YAML config inside the container (default: configs/image_setup_sdxl_fp16.yaml)
+  --config PATH        YAML config inside the container (default: configs/image_setup_12gb.yaml)
   -h, --help           Show this help
 
 Environment:
@@ -25,7 +25,7 @@ Environment:
 
 Examples:
   ./scripts/docker-run-image-setup.sh --build
-  ./scripts/docker-run-image-setup.sh --config configs/image_setup_sdxl_low_vram.yaml
+  ./scripts/docker-run-image-setup.sh --config configs/image_setup_6gb.yaml
 EOF
 }
 

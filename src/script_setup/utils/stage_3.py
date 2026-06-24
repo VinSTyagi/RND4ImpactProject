@@ -14,7 +14,8 @@ from utils.llm_helper import (
 from utils.schema import (
     Scene,
     SceneOutlineConfig,
-    Script,
+    SceneScript,
+    StoryIdea,
     resolve_path,
 )
 
@@ -26,58 +27,62 @@ def run_stage(
     tokenizer,
     config: SceneOutlineConfig,
     enable_thinking: bool = False,
-) -> list[Script]:
+) -> list[SceneScript]:
     logger.info("Beginning stage 3 (scene outline generation)")
-    scripts = Script.read_all(config.script_path)
-    logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
+    ideas = StoryIdea.read_all(config.script_path)
+    logger.info("Loaded %s ideas from %s", len(ideas), config.script_path)
     logger.info(
-        "Running vLLM generate for %s script(s) (script batch_size=%s)",
-        len(scripts),
+        "Running vLLM generate for %s story idea(s) (batch_size=%s)",
+        len(ideas),
         config.batch_size,
     )
     start = time.perf_counter()
 
-    if not scripts:
-        raise ValueError("stage 3 received no scripts")
+    if not ideas:
+        raise ValueError("stage 3 received no ideas")
 
-    missing_titles = [s for s in scripts if not s.raw_title]
+    missing_titles = [idea for idea in ideas if not idea.title]
     if missing_titles:
-        missing_ids = ", ".join(str(script.script_id) for script in missing_titles)
+        missing_ids = ", ".join(str(idea.script_id) for idea in missing_titles)
         raise ValueError(
-            f"stage 3 requires titles; missing for {len(missing_titles)} script(s): "
+            f"stage 3 requires titles; missing for {len(missing_titles)} story idea(s): "
             f"{missing_ids}"
         )
 
-    scripts = generate_scene_outlines(
+    scene_scripts = generate_scene_outlines(
         logger,
         model,
-        scripts,
+        ideas,
         config,
         sampling_params,
         tokenizer,
         enable_thinking=enable_thinking,
     )
 
-    for script in scripts:
-        script.save(config.script_path)
-    logger.info("Saved %s scripts to %s", len(scripts), config.script_path)
+    for scene_script in scene_scripts:
+        scene_script.save(config.script_path)
+    logger.info(
+        "Saved %s scene script(s) under %s",
+        len(scene_scripts),
+        config.script_path,
+    )
 
     elapsed = time.perf_counter() - start
     logger.info("Stage 3 total time: %.2fs", elapsed)
-    return scripts
+    return scene_scripts
 
 
 def generate_scene_outlines(
     logger: logging.Logger,
     model,
-    scripts: list[Script],
+    ideas: list[StoryIdea],
     config: SceneOutlineConfig,
     sampling_params,
     tokenizer,
     enable_thinking: bool = False,
-) -> list[Script]:
-    if not scripts:
-        return scripts
+) -> list[SceneScript]:
+    if not ideas:
+        return []
 
     num_scenes = config.num_scenes
     prompt_path = resolve_path(config.prompt_path)
@@ -87,18 +92,19 @@ def generate_scene_outlines(
 
     model_name = model.llm_engine.model_config.model
     max_attempts = 2
-    pending_scripts = list(scripts)
+    pending_ideas = list(ideas)
+    scene_scripts: list[SceneScript] = []
 
     for attempt in range(1, max_attempts + 1):
         prompts = [
-            _format_prompt(num_scenes, tokenizer, sys_prompt, script, enable_thinking)
-            for script in pending_scripts
+            _format_prompt(num_scenes, tokenizer, sys_prompt, idea, enable_thinking)
+            for idea in pending_ideas
         ]
         logger.info(
-            "Submitting %s scene outline prompt(s) for %s script(s) to vLLM "
-            "(attempt %s/%s, script batch_size=%s)",
+            "Submitting %s scene outline prompt(s) for %s story idea(s) to vLLM "
+            "(attempt %s/%s, batch_size=%s)",
             len(prompts),
-            len(pending_scripts),
+            len(pending_ideas),
             attempt,
             max_attempts,
             config.batch_size,
@@ -115,47 +121,55 @@ def generate_scene_outlines(
         generate_elapsed = time.perf_counter() - generate_start
         logger.info("vLLM generate completed in %.2fs", generate_elapsed)
 
-        failed_scripts: list[Script] = []
-        for script, request_output in zip(pending_scripts, raw_outputs):
+        failed_ideas: list[StoryIdea] = []
+        for idea, request_output in zip(pending_ideas, raw_outputs):
             answer_text = strip_reasoning(request_output_text(request_output))
             try:
-                script.script_scenes = parse_scenes_from_text(answer_text, num_scenes)
-                script.model = model_name
+                scenes = parse_scenes_from_text(answer_text, num_scenes)
+                for scene in scenes:
+                    scene_scripts.append(
+                        SceneScript(
+                            script_id=idea.script_id,
+                            model=model_name,
+                            scene=scene,
+                        )
+                    )
             except ValueError as exc:
                 logger.warning(
-                    "Failed to parse scene outlines for script %s (attempt %s/%s): %s",
-                    script.script_id,
+                    "Failed to parse scene outlines for story %s (attempt %s/%s): %s",
+                    idea.script_id,
                     attempt,
                     max_attempts,
                     exc,
                 )
                 logger.warning(
-                    "Raw model output for script %s:\n%s",
-                    script.script_id,
+                    "Raw model output for story %s:\n%s",
+                    idea.script_id,
                     answer_text,
                 )
-                failed_scripts.append(script)
+                failed_ideas.append(idea)
 
-        if not failed_scripts:
+        if not failed_ideas:
             break
         if attempt >= max_attempts:
-            failed_ids = ", ".join(str(script.script_id) for script in failed_scripts)
+            failed_ids = ", ".join(str(idea.script_id) for idea in failed_ideas)
             raise ValueError(
-                f"failed to parse scene outlines for script(s): {failed_ids}"
+                f"failed to parse scene outlines for story idea(s): {failed_ids}"
             )
-        pending_scripts = failed_scripts
+        pending_ideas = failed_ideas
+        scene_scripts = []
 
-    return scripts
+    return scene_scripts
 
 
 def _format_prompt(
     num_scenes: int,
     tokenizer,
     sys_prompt: str,
-    script: Script,
+    idea: StoryIdea,
     enable_thinking: bool,
 ) -> str:
-    payload = script.prompt_payload()
+    payload = idea.prompt_payload()
     user_prompt = (
         f"Here is a story item JSON object. Produce exactly {num_scenes} scene outline objects as a flat JSON array ordered by scene_number starting at 0.\n"
         "Use thinking/reasoning if helpful, then output ONLY a complete JSON array that starts with `[` and ends with `]`.\n"
@@ -188,7 +202,7 @@ def parse_scenes_from_text(text: str, num_scenes: int) -> list[Scene]:
     scenes: list[Scene] = []
     for scene_index, item in enumerate(payload):
         try:
-            scene = Script.parse_scene_dict(item)
+            scene = SceneScript.parse_scene_dict(item)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"scene at index {scene_index}: {exc}") from exc
         if scene["scene_number"] != scene_index:

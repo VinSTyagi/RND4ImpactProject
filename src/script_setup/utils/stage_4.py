@@ -18,8 +18,8 @@ from utils.llm_helper import (
 from utils.schema import (
     Scene,
     SceneContentConfig,
-    Script,
-    idea_prompt_payload,
+    SceneScript,
+    StoryIdea,
     parse_scene_content,
     resolve_path,
     scene_outline_payload,
@@ -33,30 +33,22 @@ def run_stage(
     tokenizer,
     config: SceneContentConfig,
     enable_thinking: bool = False,
-) -> list[Script]:
+) -> list[SceneScript]:
     logger.info("Beginning stage 4 (scene script generation)")
-    scripts = Script.read_all(config.script_path)
-    logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
+    ideas = StoryIdea.read_all(config.script_path)
+    logger.info("Loaded %s ideas from %s", len(ideas), config.script_path)
     logger.info(
-        "Processing %s script(s) one at a time "
+        "Processing %s story idea(s) "
         "(scene batch_size=%s, beats=%s-%s)",
-        len(scripts),
+        len(ideas),
         config.batch_size,
         config.min_beats,
         config.max_beats,
     )
     start = time.perf_counter()
 
-    if not scripts:
-        raise ValueError("stage 4 received no scripts")
-
-    missing_scenes = [x for x in scripts if not x.script_scenes]
-    if missing_scenes:
-        missing_ids = ", ".join(str(script.script_id) for script in missing_scenes)
-        raise ValueError(
-            f"stage 4 requires scene outlines from stage 3; missing for "
-            f"{len(missing_scenes)} script(s): {missing_ids}"
-        )
+    if not ideas:
+        raise ValueError("stage 4 received no ideas")
 
     if config.min_beats < 1:
         raise ValueError("scene_content_config.min_beats must be at least 1")
@@ -66,34 +58,34 @@ def run_stage(
             f"({config.max_beats} < {config.min_beats})"
         )
 
-    scripts = generate_scene_content(
+    scene_scripts = generate_scene_content(
         logger,
         model,
-        scripts,
+        ideas,
         config,
         sampling_params,
         tokenizer,
         enable_thinking=enable_thinking,
     )
 
-    for script in scripts:
-        script.save(config.script_path)
-    logger.info("Saved %s scripts to %s", len(scripts), config.script_path)
+    for scene_script in scene_scripts:
+        scene_script.save(config.script_path)
+    logger.info("Saved %s scene script(s) to %s", len(scene_scripts), config.script_path)
 
     elapsed = time.perf_counter() - start
     logger.info("Stage 4 total time: %.2fs", elapsed)
-    return scripts
+    return scene_scripts
 
 
 def generate_scene_content(
     logger: logging.Logger,
     model,
-    scripts: list[Script],
+    ideas: list[StoryIdea],
     config: SceneContentConfig,
     sampling_params,
     tokenizer,
     enable_thinking: bool = False,
-) -> list[Script]:
+) -> list[SceneScript]:
     prompt_path = resolve_path(config.prompt_path)
     system_prompt_template = load_prompt_md(str(prompt_path))
     if not system_prompt_template:
@@ -107,13 +99,19 @@ def generate_scene_content(
     )
 
     model_name = model.llm_engine.model_config.model
+    updated_scripts: list[SceneScript] = []
 
-    for script in scripts:
-        scenes = script.script_scenes or []
+    for idea in ideas:
+        scene_scripts = SceneScript.read_for_story(config.script_path, idea.script_id)
+        if not scene_scripts:
+            raise ValueError(
+                f"stage 4 requires scene outlines from stage 3 for story {idea.script_id}"
+            )
+
         logger.info(
-            "Script: %s — generating scene_content for %s scene(s) (batch_size=%s)",
-            script.script_id,
-            len(scenes),
+            "Story %s — generating scene_content for %s scene(s) (batch_size=%s)",
+            idea.script_id,
+            len(scene_scripts),
             config.batch_size,
         )
 
@@ -121,17 +119,17 @@ def generate_scene_content(
             format_user_prompt(
                 tokenizer,
                 system_prompt,
-                script,
-                scene,
+                idea,
+                scene_script.scene,
                 min_beats=config.min_beats,
                 max_beats=config.max_beats,
                 enable_thinking=enable_thinking,
             )
-            for scene in scenes
+            for scene_script in scene_scripts
         ]
 
-        scene_contents: list[list[tuple[str, str]] | None] = [None] * len(scenes)
-        pending_indices = list(range(len(scenes)))
+        scene_contents: list[list[tuple[str, str]] | None] = [None] * len(scene_scripts)
+        pending_indices = list(range(len(scene_scripts)))
         max_attempts = 2
 
         for attempt in range(1, max_attempts + 1):
@@ -142,31 +140,31 @@ def generate_scene_content(
                 sampling_params,
                 batch_size=config.batch_size if attempt == 1 else 1,
                 logger=logger,
-                label=f"stage 4 script {script.script_id}",
+                label=f"stage 4 story {idea.script_id}",
             )
 
             still_pending: list[int] = []
             for scene_index, request_output in zip(pending_indices, raw_outputs):
-                scene = scenes[scene_index]
+                scene = scene_scripts[scene_index].scene
                 try:
                     answer_text = strip_reasoning(request_output_text(request_output))
-                    content = parse_content_from_text(answer_text)
-                    validate_beat_count(
-                        content,
+                    content = parse_content_from_text(
+                        answer_text,
                         min_beats=config.min_beats,
                         max_beats=config.max_beats,
+                        clamp_over_max=True,
                     )
                     scene_contents[scene_index] = content
                 except ValueError as exc:
                     if attempt >= max_attempts:
                         raise ValueError(
-                            f"failed to parse scene_content for script {script.script_id} "
+                            f"failed to parse scene_content for story {idea.script_id} "
                             f"scene {scene['scene_number']}: {exc}"
                         ) from exc
                     logger.warning(
-                        "Failed to parse scene_content for script %s scene %s "
+                        "Failed to parse scene_content for story %s scene %s "
                         "(attempt %s/%s): %s",
-                        script.script_id,
+                        idea.script_id,
                         scene["scene_number"],
                         attempt,
                         max_attempts,
@@ -180,16 +178,17 @@ def generate_scene_content(
 
         if any(content is None for content in scene_contents):
             raise ValueError(
-                f"failed to generate scene_content for script {script.script_id}"
+                f"failed to generate scene_content for story {idea.script_id}"
             )
 
-        script.script_scenes = Script.merge_scene_content(
-            scenes,
-            [content for content in scene_contents if content is not None],
-        )
-        script.model = model_name
+        for scene_script, content in zip(scene_scripts, scene_contents):
+            if content is None:
+                continue
+            scene_script.scene = {**scene_script.scene, "scene_content": content}
+            scene_script.model = model_name
+            updated_scripts.append(scene_script)
 
-    return scripts
+    return updated_scripts
 
 
 def _extract_scene_content_array_text(text: str) -> str | None:
@@ -247,19 +246,30 @@ def validate_beat_count(
     min_beats: int,
     max_beats: int,
 ) -> None:
-    count = len(content)
-    if count < min_beats or count > max_beats:
-        raise ValueError(
-            f"expected {min_beats}-{max_beats} content pair(s) but parsed {count}"
-        )
+    parse_scene_content(
+        [[character, text] for character, text in content],
+        min_beats=min_beats,
+        max_beats=max_beats,
+    )
 
 
-def parse_content_from_text(text: str) -> list[tuple[str, str]]:
+def parse_content_from_text(
+    text: str,
+    *,
+    min_beats: int | None = None,
+    max_beats: int | None = None,
+    clamp_over_max: bool = True,
+) -> list[tuple[str, str]]:
     last_exc: ValueError | None = None
 
     for parser in (_parse_content_payload, _parse_content_array_fallback):
         try:
-            return parser(text)
+            return parser(
+                text,
+                min_beats=min_beats,
+                max_beats=max_beats,
+                clamp_over_max=clamp_over_max,
+            )
         except (JSONDecodeError, ValueError, TypeError) as exc:
             last_exc = ValueError(f"invalid JSON in model output: {exc}")
 
@@ -267,11 +277,22 @@ def parse_content_from_text(text: str) -> list[tuple[str, str]]:
     raise last_exc
 
 
-def _parse_content_payload(text: str) -> list[tuple[str, str]]:
+def _parse_content_payload(
+    text: str,
+    *,
+    min_beats: int | None = None,
+    max_beats: int | None = None,
+    clamp_over_max: bool = False,
+) -> list[tuple[str, str]]:
     payload = parse_json_object(text)
 
     if isinstance(payload, list):
-        return parse_scene_content(payload)
+        return parse_scene_content(
+            payload,
+            min_beats=min_beats,
+            max_beats=max_beats,
+            clamp_over_max=clamp_over_max,
+        )
 
     if not isinstance(payload, dict):
         raise ValueError("expected a JSON object with scene_content")
@@ -279,33 +300,48 @@ def _parse_content_payload(text: str) -> list[tuple[str, str]]:
     if "scene_content" not in payload:
         raise ValueError("missing field: scene_content")
 
-    return parse_scene_content(payload["scene_content"])
+    return parse_scene_content(
+        payload["scene_content"],
+        min_beats=min_beats,
+        max_beats=max_beats,
+        clamp_over_max=clamp_over_max,
+    )
 
 
-def _parse_content_array_fallback(text: str) -> list[tuple[str, str]]:
+def _parse_content_array_fallback(
+    text: str,
+    *,
+    min_beats: int | None = None,
+    max_beats: int | None = None,
+    clamp_over_max: bool = False,
+) -> list[tuple[str, str]]:
     array_text = _extract_scene_content_array_text(text)
     if not array_text:
         raise ValueError("no scene_content array found in model output")
 
     payload = parse_json_array(array_text)
-    return parse_scene_content(payload)
+    return parse_scene_content(
+        payload,
+        min_beats=min_beats,
+        max_beats=max_beats,
+        clamp_over_max=clamp_over_max,
+    )
 
 
 def format_user_prompt(
     tokenizer,
     system_prompt: str,
-    script: Script,
+    idea: StoryIdea,
     scene: Scene,
     *,
     min_beats: int,
     max_beats: int,
     enable_thinking: bool = False,
 ) -> str:
-    if not script.raw_title:
-        raise ValueError(f"script {script.script_id} missing raw_title")
+    if not idea.title:
+        raise ValueError(f"story {idea.script_id} missing title")
 
-    story_payload = idea_prompt_payload(script.idea)
-    story_payload["title"] = script.raw_title
+    story_payload = idea.prompt_payload()
 
     user_payload = {
         "story": story_payload,
@@ -321,7 +357,8 @@ def format_user_prompt(
                 "Use the story's premise, hook, tone, and theme to deepen stakes. "
                 "Structure: opening beat → escalating conflict → turn → ends_on. "
                 "Return a single JSON object with one field, scene_content: an array "
-                f"of {min_beats}–{max_beats} [character, line] pairs.\n"
+                f"containing no fewer than {min_beats} and no more than {max_beats} "
+                "[character, line] pairs (inclusive range).\n"
                 f"{json.dumps(user_payload, ensure_ascii=False)}"
             ),
         },

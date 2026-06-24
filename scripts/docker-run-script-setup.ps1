@@ -1,7 +1,7 @@
 # Build (optional) and run script_setup in Docker.
 param(
     [switch]$Build,
-    [string]$Config = "configs/script_setup_qwen3_4b.yaml",
+    [string]$Config = "configs/script_setup_12gb.yaml",
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RunnerArgs
 )
@@ -17,14 +17,14 @@ and are cached in the compose hf_cache volume (rnd4impact_script_hf_cache).
 
 Options:
   -Build               Run docker compose build before starting the container
-  -Config PATH         YAML config inside the container (default: configs/script_setup_qwen3_4b.yaml)
+  -Config PATH         YAML config inside the container (default: configs/script_setup_12gb.yaml)
 
 Environment:
   `$env:SCRIPT_SETUP_CONFIG   Default config when -Config is omitted
 
 Examples:
   .\scripts\docker-run-script-setup.ps1 -Build
-  .\scripts\docker-run-script-setup.ps1 -Config configs/script_setup_qwen3_4b.yaml -- -all
+  .\scripts\docker-run-script-setup.ps1 -Config configs/script_setup_12gb.yaml -- -all
   .\scripts\docker-run-script-setup.ps1 -- -4
 "@
 }

@@ -34,7 +34,7 @@ services:
       - python
       - image_setup/image_setup_runner.py
       - --config
-      - configs/image_setup_sdxl_lightning_16step.yaml
+      - configs/image_setup_12gb.yaml
 
   shell:
     <<: *common

@@ -11,7 +11,7 @@ from utils.llm_helper import (
     strip_markdown_fences,
     strip_reasoning,
 )
-from utils.schema import Script, TitleConfig, idea_prompt_payload, resolve_path
+from utils.schema import StoryIdea, TitleConfig, idea_prompt_payload, resolve_path
 
 
 def run_stage(
@@ -21,50 +21,50 @@ def run_stage(
     tokenizer,
     config: TitleConfig,
     enable_thinking: bool = False,
-) -> list[Script]:
+) -> list[StoryIdea]:
     logger.info("Beginning stage 2 (title generation)")
-    scripts = Script.read_all(config.script_path)
-    logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
+    ideas = StoryIdea.read_all(config.script_path)
+    logger.info("Loaded %s ideas from %s", len(ideas), config.script_path)
     logger.info(
-        "Running vLLM generate for %s scripts (batch_size=%s)",
-        len(scripts),
+        "Running vLLM generate for %s ideas (batch_size=%s)",
+        len(ideas),
         config.batch_size,
     )
     start = time.perf_counter()
 
-    if not scripts:
-        raise ValueError("stage 2 received no scripts")
+    if not ideas:
+        raise ValueError("stage 2 received no ideas")
 
-    scripts = generate_titles(
+    ideas = generate_titles(
         logger,
         model,
-        scripts,
+        ideas,
         config,
         sampling_params,
         tokenizer,
         enable_thinking=enable_thinking,
     )
 
-    for script in scripts:
-        script.save(config.script_path)
-    logger.info("Saved %s scripts to %s", len(scripts), config.script_path)
+    for idea in ideas:
+        idea.save(config.script_path)
+    logger.info("Saved %s ideas to %s", len(ideas), config.script_path)
 
     elapsed = time.perf_counter() - start
     logger.info("Stage 2 total time: %.2fs", elapsed)
-    return scripts
+    return ideas
 
 
 def generate_titles(
     logger: logging.Logger,
     model,
-    scripts: list[Script],
+    ideas: list[StoryIdea],
     config: TitleConfig,
     sampling_params,
     tokenizer,
     enable_thinking: bool = False,
-) -> list[Script]:
-    if not scripts:
-        return scripts
+) -> list[StoryIdea]:
+    if not ideas:
+        return ideas
 
     prompt_path = resolve_path(config.prompt_path)
     sys_prompt = load_prompt_md(str(prompt_path))
@@ -73,8 +73,8 @@ def generate_titles(
 
     model_name = model.llm_engine.model_config.model
     prompts = [
-        _format_prompt(config.num_words, tokenizer, sys_prompt, script, enable_thinking)
-        for script in scripts
+        _format_prompt(config.num_words, tokenizer, sys_prompt, idea, enable_thinking)
+        for idea in ideas
     ]
     logger.info("Submitting %s title prompt(s) to vLLM", len(prompts))
     generate_start = time.perf_counter()
@@ -89,35 +89,35 @@ def generate_titles(
     generate_elapsed = time.perf_counter() - generate_start
     logger.info("vLLM generate completed in %.2fs\n", generate_elapsed)
 
-    if len(raw_outputs) != len(scripts):
+    if len(raw_outputs) != len(ideas):
         raise ValueError(
-            f"expected {len(scripts)} vLLM output(s) but received {len(raw_outputs)}"
+            f"expected {len(ideas)} vLLM output(s) but received {len(raw_outputs)}"
         )
 
-    for script, request_output in zip(scripts, raw_outputs):
+    for idea, request_output in zip(ideas, raw_outputs):
         try:
             answer_text = strip_reasoning(request_output_text(request_output))
             logger.info(
-                "Parsed title output for %s:\n%s", script.script_id, answer_text
+                "Parsed title output for %s:\n%s", idea.script_id, answer_text
             )
-            script.raw_title = parse_title_from_text(answer_text)
+            idea.title = parse_title_from_text(answer_text)
         except ValueError as exc:
             raise ValueError(
-                f"failed to parse title for script {script.script_id}: {exc}"
+                f"failed to parse title for story {idea.script_id}: {exc}"
             ) from exc
-        script.model = model_name
+        idea.model = model_name
 
-    return scripts
+    return ideas
 
 
 def _format_prompt(
     num_words,
     tokenizer,
     sys_prompt: str,
-    script: Script,
+    idea: StoryIdea,
     enable_thinking: bool,
 ) -> str:
-    payload = idea_prompt_payload(script.idea)
+    payload = idea_prompt_payload(idea.idea)
     user_prompt = (
         f"Here is a story idea JSON object. Produce exactly one title string of approximately {num_words} words.\n"
         + json.dumps(payload, ensure_ascii=False)

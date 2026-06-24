@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, TypedDict
 from uuid import UUID, uuid4
-
-from PIL import Image
 
 import yaml
 
@@ -126,46 +125,69 @@ def scene_payload(scene: Scene) -> dict[str, Any]:
     return payload
 
 
-def parse_scene_content(data: Any) -> list[tuple[str, str]]:
-    """Validate scene_content from LLM output or JSON."""
-    if data is None:
+def cast_visual_context(idea: StoryIdea) -> dict[str, str]:
+    """Story-bible visual anchors for stage 5 (describe cast without names)."""
+    return {
+        "protagonist_description": idea.idea["protagonist"],
+        "antagonist_description": idea.idea["antagonist"],
+    }
+
+
+def story_dir(data_root: str, script_id: UUID | str) -> Path:
+    return resolve_path(data_root) / str(script_id)
+
+
+def idea_json_path(data_root: str, script_id: UUID | str) -> Path:
+    return story_dir(data_root, script_id) / "idea.json"
+
+
+def scene_dir(data_root: str, script_id: UUID | str, scene_number: int) -> Path:
+    return story_dir(data_root, script_id) / str(scene_number)
+
+
+def scene_script_json_path(
+    data_root: str, script_id: UUID | str, scene_number: int
+) -> Path:
+    return scene_dir(data_root, script_id, scene_number) / "script.json"
+
+
+def iter_story_dirs(data_root: str) -> list[Path]:
+    base = resolve_path(data_root)
+    if not base.is_dir():
         return []
-    if not isinstance(data, list):
-        raise TypeError("scene_content must be an array")
-    content: list[tuple[str, str]] = []
-    for index, item in enumerate(data):
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            character = str(item[0]).strip()
-            text = str(item[1])
-            if not character:
-                raise ValueError(f"scene_content[{index}]: character name must be non-empty")
-            content.append((character, text))
-            continue
-        if isinstance(item, dict):
-            character = str(item.get("character") or item.get("speaker") or "").strip()
-            text = str(item.get("text") or item.get("line") or "")
-            if not character:
-                raise ValueError(f"scene_content[{index}]: character name must be non-empty")
-            content.append((character, text))
-            continue
-        raise ValueError(
-            f"scene_content[{index}] must be a 2-element array or object with character/text"
-        )
-    return content
+    return sorted(
+        (entry for entry in base.iterdir() if entry.is_dir()),
+        key=lambda path: path.name,
+    )
+
+
+def iter_scene_dirs(story_path: Path) -> list[Path]:
+    return sorted(
+        (
+            entry
+            for entry in story_path.iterdir()
+            if entry.is_dir() and entry.name.isdigit()
+        ),
+        key=lambda path: int(path.name),
+    )
 
 
 @dataclass
-class Script:
+class StoryIdea:
+    """Story bible written by stages 1–2 to ``<script_id>/idea.json``."""
+
     idea: Idea
-    model: str
     script_id: UUID = field(default_factory=uuid4)
-    raw_title: str | None = None
-    script_scenes: list[Scene] | None = None
-    images: list[Image] | None = None
+    model: str = ""
+    title: str | None = None
+
+    @property
+    def raw_title(self) -> str | None:
+        return self.title
 
     @classmethod
     def parse_idea_dict(cls, data: Any) -> Idea:
-        """Validate and normalize an idea dict from LLM output or JSON."""
+        """Validate and normalize idea story fields from LLM output or JSON."""
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
         missing = [
@@ -187,6 +209,85 @@ class Script:
             "model": str(data.get("model") or "").strip(),
         }
         return idea
+
+    def prompt_payload(self) -> dict[str, str]:
+        """Story fields plus title, for stage 3 prompts."""
+        if not self.title:
+            raise ValueError(f"story {self.script_id} missing title")
+        payload = idea_prompt_payload(self.idea)
+        payload["title"] = self.title
+        return payload
+
+    def to_json(self) -> dict[str, Any]:
+        out: dict[str, Any] = {name: self.idea[name] for name in _IDEA_FIELDS}
+        out["script_id"] = str(self.script_id)
+        out["model"] = self.model or self.idea.get("model") or ""
+        if self.title:
+            out["title"] = self.title
+        return out
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> StoryIdea:
+        if not isinstance(data, dict):
+            raise TypeError(f"expected dict, got {type(data).__name__}")
+        nested = data.get("idea") or data.get("raw_idea")
+        if isinstance(nested, dict):
+            idea = cls.parse_idea_dict(nested)
+            script_id_raw = data.get("script_id") or nested.get("idea_id")
+        else:
+            idea = cls.parse_idea_dict(data)
+            script_id_raw = data.get("script_id") or data.get("idea_id")
+        if not script_id_raw:
+            raise ValueError("missing script_id")
+        title = data.get("title") or data.get("raw_title")
+        if title is not None:
+            title = str(title).strip() or None
+        model = str(data.get("model") or idea.get("model") or "").strip()
+        return cls(
+            idea=idea,
+            script_id=UUID(str(script_id_raw)),
+            model=model,
+            title=title,
+        )
+
+    @classmethod
+    def load_json(cls, path: str | Path) -> StoryIdea:
+        resolved = Path(path) if isinstance(path, Path) else resolve_path(str(path))
+        if not resolved.is_file():
+            raise FileNotFoundError(f"idea file not found: {resolved}")
+        with resolved.open("r", encoding="utf-8") as handle:
+            return cls.from_dict(json.load(handle))
+
+    @classmethod
+    def load(cls, data_root: str, script_id: UUID | str) -> StoryIdea:
+        return cls.load_json(idea_json_path(data_root, script_id))
+
+    @classmethod
+    def read_all(cls, data_root: str) -> list[StoryIdea]:
+        """Load one StoryIdea per ``<script_id>/idea.json`` under data_root."""
+        ideas: list[StoryIdea] = []
+        for story_path in iter_story_dirs(data_root):
+            idea_path = story_path / "idea.json"
+            if idea_path.is_file():
+                ideas.append(cls.load_json(idea_path))
+        if not ideas:
+            raise ValueError(f"no ideas found in {resolve_path(data_root)}")
+        return ideas
+
+    def save(self, data_root: str) -> None:
+        out_dir = story_dir(data_root, self.script_id)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with idea_json_path(data_root, self.script_id).open("w", encoding="utf-8") as fh:
+            json.dump(self.to_json(), fh, indent=2)
+
+
+@dataclass
+class SceneScript:
+    """One scene written by stages 3–5 to ``<script_id>/<n>/script.json``."""
+
+    script_id: UUID
+    model: str
+    scene: Scene
 
     @classmethod
     def parse_scene_dict(cls, data: Any) -> Scene:
@@ -211,9 +312,7 @@ class Script:
             raise TypeError("scene_number must be an integer")
 
         scene_content = parse_scene_content(data.get("scene_content"))
-
-        image_prompt_data = data.get("image_prompt")
-        scene_image_prompt = cls.parse_img_prompt_list(image_prompt_data)
+        scene_image_prompt = cls.parse_img_prompt_list(data.get("image_prompt"))
 
         scene_characters = [
             str(name).strip() for name in characters if str(name).strip()
@@ -247,29 +346,6 @@ class Script:
             if not scene[name]:
                 raise ValueError(f"{name} must be a non-empty string")
         return scene
-
-    @classmethod
-    def parse_scenes_list(cls, data: Any) -> list[Scene] | None:
-        """Validate script_scenes from JSON (dicts or legacy JSON strings)."""
-        if data is None:
-            return None
-        if not isinstance(data, list):
-            raise ValueError("script_scenes must be a list or null")
-
-        scenes: list[Scene] = []
-        for index, item in enumerate(data):
-            if isinstance(item, str):
-                try:
-                    item = json.loads(item)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(
-                        f"script_scenes[{index}] is not valid JSON: {exc}"
-                    ) from exc
-            try:
-                scenes.append(cls.parse_scene_dict(item))
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"script_scenes[{index}]: {exc}") from exc
-        return scenes
 
     @classmethod
     def parse_img_prompt_dict(cls, data: Any) -> ImagePrompt:
@@ -313,13 +389,21 @@ class Script:
                 raise ValueError("image_prompt must be null or a non-empty array")
             prompts = [cls.parse_img_prompt_dict(item) for item in data]
         else:
-            raise TypeError(f"image_prompt must be an object, array, or null, got {type(data).__name__}")
+            raise TypeError(
+                f"image_prompt must be an object, array, or null, got {type(data).__name__}"
+            )
 
-        if min_prompts and len(prompts) < min_prompts:
+        if min_prompts < 0:
+            raise ValueError("min_prompts must be >= 0")
+        if max_prompts < min_prompts:
+            raise ValueError(
+                f"max_prompts must be >= min_prompts ({max_prompts} < {min_prompts})"
+            )
+        if len(prompts) < min_prompts:
             raise ValueError(
                 f"expected at least {min_prompts} image prompt(s) but parsed {len(prompts)}"
             )
-        if max_prompts and len(prompts) > max_prompts:
+        if len(prompts) > max_prompts:
             raise ValueError(
                 f"expected at most {max_prompts} image prompt(s) but parsed {len(prompts)}"
             )
@@ -328,129 +412,184 @@ class Script:
     @classmethod
     def attach_scene_image_prompts(
         cls,
-        scenes: list[Scene],
-        prompts_by_scene: list[list[ImagePrompt]],
+        scene: Scene,
+        prompts: list[ImagePrompt],
         *,
         min_prompts: int = 1,
         max_prompts: int = 5,
-    ) -> list[Scene]:
-        """Return scenes with image_prompt set from per-scene prompt lists."""
-        if len(scenes) != len(prompts_by_scene):
+    ) -> Scene:
+        count = len(prompts)
+        if count < min_prompts or count > max_prompts:
             raise ValueError(
-                f"expected {len(scenes)} scene prompt list(s) but received "
-                f"{len(prompts_by_scene)}"
+                f"expected {min_prompts}-{max_prompts} image prompt(s) but received {count}"
             )
-        updated: list[Scene] = []
-        for scene_index, (scene, prompts) in enumerate(zip(scenes, prompts_by_scene)):
-            count = len(prompts)
-            if count < min_prompts or count > max_prompts:
-                raise ValueError(
-                    f"scene {scene_index}: expected {min_prompts}-{max_prompts} "
-                    f"image prompt(s) but received {count}"
-                )
-            updated.append({**scene, "image_prompt": prompts})
-        return updated
-
-    @classmethod
-    def merge_scene_content(
-        cls,
-        scenes: list[Scene],
-        scene_contents: list[list[tuple[str, str]]],
-    ) -> list[Scene]:
-        """Return scenes with scene_content filled from a parallel content list."""
-        if len(scenes) != len(scene_contents):
-            raise ValueError(
-                f"expected {len(scenes)} scene_content list(s) but received "
-                f"{len(scene_contents)}"
-            )
-        return [
-            {**scene, "scene_content": content}
-            for scene, content in zip(scenes, scene_contents)
-        ]
-
-    def prompt_payload(self) -> dict[str, str]:
-        """Story fields plus title, for stage 3 prompts."""
-        if not self.raw_title:
-            raise ValueError(f"script {self.script_id} missing raw_title")
-        payload = idea_prompt_payload(self.idea)
-        payload["title"] = self.raw_title
-        return payload
+        return {**scene, "image_prompt": prompts}
 
     def to_json(self) -> dict[str, Any]:
-        scenes_out: list[dict[str, Any]] | None = None
-        if self.script_scenes is not None:
-            scenes_out = []
-            for scene in self.script_scenes:
-                scene_dict: dict[str, Any] = dict(scene)
-                scene_dict["scene_content"] = _serialize_scene_content(
-                    scene.get("scene_content") or []
-                )
-                scenes_out.append(scene_dict)
+        scene_dict: dict[str, Any] = dict(self.scene)
+        scene_dict["scene_content"] = _serialize_scene_content(
+            self.scene.get("scene_content") or []
+        )
         return {
-            "idea": self.idea,
             "script_id": str(self.script_id),
-            "raw_title": self.raw_title,
-            "script_scenes": scenes_out,
+            "model": self.model,
+            "scene": scene_dict,
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Script:
+    def from_dict(cls, data: dict[str, Any]) -> SceneScript:
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
-        idea_data = data.get("idea") or data.get("raw_idea")
-        if not isinstance(idea_data, dict):
-            raise ValueError("missing or invalid idea")
-        idea = cls.parse_idea_dict(idea_data)
-        model = str(data.get("model") or idea.get("model") or "").strip()
-        script_id_raw = data.get("script_id") or idea_data.get("idea_id")
+        script_id_raw = data.get("script_id")
         if not script_id_raw:
             raise ValueError("missing script_id")
-        raw_title = data.get("raw_title")
-        if raw_title is not None:
-            raw_title = str(raw_title).strip() or None
-        script_scenes = cls.parse_scenes_list(data.get("script_scenes"))
+        model = str(data.get("model") or "").strip()
+        scene_data = data.get("scene")
+        if scene_data is None:
+            raise ValueError("missing scene")
+        scene = cls.parse_scene_dict(scene_data)
         return cls(
-            idea=idea,
-            model=model,
             script_id=UUID(str(script_id_raw)),
-            raw_title=raw_title,
-            script_scenes=script_scenes,
+            model=model,
+            scene=scene,
         )
 
     @classmethod
-    def load_json(cls, path: str | Path) -> Script:
+    def load_json(cls, path: str | Path) -> SceneScript:
         resolved = Path(path) if isinstance(path, Path) else resolve_path(str(path))
-        if not resolved.exists():
-            raise FileNotFoundError(f"script file not found: {resolved}")
+        if not resolved.is_file():
+            raise FileNotFoundError(f"scene script file not found: {resolved}")
         with resolved.open("r", encoding="utf-8") as handle:
             return cls.from_dict(json.load(handle))
 
     @classmethod
-    def read_all(cls, data_root: str) -> list[Script]:
-        """Load one Script per ``<script_id>/script.json`` under data_root."""
-        base = resolve_path(data_root)
-        if not base.exists():
-            raise FileNotFoundError(f"data root not found: {base}")
-        scripts: list[Script] = []
-        for entry in sorted(base.iterdir(), key=lambda p: p.name):
-            if not entry.is_dir():
+    def read_for_story(cls, data_root: str, script_id: UUID | str) -> list[SceneScript]:
+        story_path = story_dir(data_root, script_id)
+        if not story_path.is_dir():
+            raise FileNotFoundError(f"story directory not found: {story_path}")
+        scripts: list[SceneScript] = []
+        for scene_path in iter_scene_dirs(story_path):
+            script_json = scene_path / "script.json"
+            if script_json.is_file():
+                scripts.append(cls.load_json(script_json))
+        scripts.sort(key=lambda item: item.scene["scene_number"])
+        return scripts
+
+    @classmethod
+    def read_all(cls, data_root: str) -> list[SceneScript]:
+        """Load every ``<script_id>/<scene>/script.json`` under data_root."""
+        scripts: list[SceneScript] = []
+        for story_path in iter_story_dirs(data_root):
+            if not (story_path / "idea.json").is_file():
                 continue
-            script_path = entry / "script.json"
-            if script_path.is_file():
-                scripts.append(cls.load_json(script_path))
+            for scene_path in iter_scene_dirs(story_path):
+                script_json = scene_path / "script.json"
+                if script_json.is_file():
+                    scripts.append(cls.load_json(script_json))
         if not scripts:
-            raise ValueError(f"no scripts found in {base}")
+            raise ValueError(f"no scene scripts found in {resolve_path(data_root)}")
+        scripts.sort(
+            key=lambda item: (str(item.script_id), item.scene["scene_number"])
+        )
         return scripts
 
     def save(self, data_root: str) -> None:
-        out = self.to_json()
-        try:
-            out_dir = resolve_path(data_root) / str(self.script_id)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            with (out_dir / "script.json").open("w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
-        except Exception:
-            raise
+        scene_number = self.scene["scene_number"]
+        out_dir = scene_dir(data_root, self.script_id, scene_number)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        with scene_script_json_path(data_root, self.script_id, scene_number).open(
+            "w", encoding="utf-8"
+        ) as fh:
+            json.dump(self.to_json(), fh, indent=2)
+
+
+# Backward-compatible alias for stages migrating off the monolithic Script type.
+Script = SceneScript
+
+
+
+def clamp_scene_content_beats(
+    content: list[tuple[str, str]],
+    *,
+    max_beats: int,
+    head: int = 2,
+    tail: int = 3,
+) -> list[tuple[str, str]]:
+    """Trim excess beats while preserving the opening and closing exchanges."""
+    count = len(content)
+    if count <= max_beats:
+        return content
+
+    head = min(head, max_beats)
+    tail = min(tail, max_beats - head)
+    middle_slots = max_beats - head - tail
+    if tail:
+        middle = content[head : count - tail]
+        trimmed = content[:head] + middle[:middle_slots] + content[count - tail :]
+    else:
+        trimmed = content[:head] + content[head : head + middle_slots]
+    return trimmed
+
+
+def parse_scene_content(
+    data: Any,
+    *,
+    min_beats: int | None = None,
+    max_beats: int | None = None,
+    clamp_over_max: bool = False,
+) -> list[tuple[str, str]]:
+    """Validate scene_content from LLM output or JSON."""
+    if data is None:
+        content: list[tuple[str, str]] = []
+    elif not isinstance(data, list):
+        raise TypeError("scene_content must be an array")
+    else:
+        content = []
+        for index, item in enumerate(data):
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                character = str(item[0]).strip()
+                text = str(item[1])
+                if not character:
+                    raise ValueError(
+                        f"scene_content[{index}]: character name must be non-empty"
+                    )
+                content.append((character, text))
+                continue
+            if isinstance(item, dict):
+                character = str(
+                    item.get("character") or item.get("speaker") or ""
+                ).strip()
+                text = str(item.get("text") or item.get("line") or "")
+                if not character:
+                    raise ValueError(
+                        f"scene_content[{index}]: character name must be non-empty"
+                    )
+                content.append((character, text))
+                continue
+            raise ValueError(
+                f"scene_content[{index}] must be a 2-element array or object with character/text"
+            )
+
+    if min_beats is not None and max_beats is not None:
+        count = len(content)
+        if count < min_beats:
+            raise ValueError(
+                f"expected {min_beats}-{max_beats} content pair(s) but parsed {count}"
+            )
+        if count > max_beats:
+            if clamp_over_max:
+                logging.getLogger(__name__).warning(
+                    "Trimming scene_content from %s to %s beat(s) "
+                    "(preserving opening and closing exchanges)",
+                    count,
+                    max_beats,
+                )
+                content = clamp_scene_content_beats(content, max_beats=max_beats)
+            else:
+                raise ValueError(
+                    f"expected {min_beats}-{max_beats} content pair(s) but parsed {count}"
+                )
+    return content
 
 
 @dataclass

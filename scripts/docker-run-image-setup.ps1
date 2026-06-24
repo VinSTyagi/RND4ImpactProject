@@ -1,7 +1,7 @@
 # Build (optional) and run image_setup in Docker.
 param(
     [switch]$Build,
-    [string]$Config = "configs/image_setup_sdxl_lightning_16step.yaml",
+    [string]$Config = "configs/image_setup_12gb.yaml",
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RunnerArgs
 )
@@ -17,14 +17,14 @@ and are cached in the compose hf_cache volume (rnd4impact_image_hf_cache).
 
 Options:
   -Build               Run docker compose build before starting the container
-  -Config PATH         YAML config inside the container (default: configs/image_setup_sdxl_fp16.yaml)
+  -Config PATH         YAML config inside the container (default: configs/image_setup_12gb.yaml)
 
 Environment:
   `$env:IMAGE_SETUP_CONFIG   Default config when -Config is omitted
 
 Examples:
   .\scripts\docker-run-image-setup.ps1 -Build
-  .\scripts\docker-run-image-setup.ps1 -Config configs/image_setup_sdxl_low_vram.yaml
+  .\scripts\docker-run-image-setup.ps1 -Config configs/image_setup_6gb.yaml
 "@
 }
 

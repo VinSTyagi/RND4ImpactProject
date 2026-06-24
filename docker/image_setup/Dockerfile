@@ -82,4 +82,4 @@ COPY README.md LICENSE /workspace/
 
 WORKDIR /workspace/src
 
-CMD ["python", "image_setup/image_setup_runner.py", "--config", "configs/image_setup_sdxl_fp16.yaml"]
+CMD ["python", "image_setup/image_setup_runner.py", "--config", "configs/image_setup_12gb.yaml"]

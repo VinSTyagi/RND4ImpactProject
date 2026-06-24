@@ -136,38 +136,12 @@ def scene_payload(scene: Scene) -> dict[str, str]:
 
 
 @dataclass
-class Script:
-    idea: Idea
-    model: str
-    script_id: UUID = field(default_factory=uuid4)
-    raw_title: str | None = None
-    script_scenes: list[Scene] | None = None
-    images: list[Image] | None = None
+class SceneScript:
+    """One scene loaded from ``<script_id>/<n>/script.json``."""
 
-    @classmethod
-    def parse_idea_dict(cls, data: Any) -> Idea:
-        """Validate and normalize an idea dict from LLM output or JSON."""
-        if not isinstance(data, dict):
-            raise TypeError(f"expected dict, got {type(data).__name__}")
-        missing = [
-            name
-            for name in _IDEA_FIELDS
-            if name not in data or not str(data[name]).strip()
-        ]
-        if missing:
-            raise ValueError(f"missing or empty fields: {', '.join(missing)}")
-        idea: Idea = {
-            "genre": str(data["genre"]).strip(),
-            "setting": str(data["setting"]).strip(),
-            "premise": str(data["premise"]).strip(),
-            "protagonist": str(data["protagonist"]).strip(),
-            "antagonist": str(data["antagonist"]).strip(),
-            "hook": str(data["hook"]).strip(),
-            "tone": str(data["tone"]).strip(),
-            "theme": str(data["theme"]).strip(),
-            "model": str(data.get("model") or "").strip(),
-        }
-        return idea
+    script_id: UUID
+    model: str
+    scene: Scene
 
     @classmethod
     def parse_scene_dict(cls, data: Any) -> Scene:
@@ -228,29 +202,6 @@ class Script:
         return scene
 
     @classmethod
-    def parse_scenes_list(cls, data: Any) -> list[Scene] | None:
-        """Validate script_scenes from JSON (dicts or legacy JSON strings)."""
-        if data is None:
-            return None
-        if not isinstance(data, list):
-            raise ValueError("script_scenes must be a list or null")
-
-        scenes: list[Scene] = []
-        for index, item in enumerate(data):
-            if isinstance(item, str):
-                try:
-                    item = json.loads(item)
-                except json.JSONDecodeError as exc:
-                    raise ValueError(
-                        f"script_scenes[{index}] is not valid JSON: {exc}"
-                    ) from exc
-            try:
-                scenes.append(cls.parse_scene_dict(item))
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"script_scenes[{index}]: {exc}") from exc
-        return scenes
-
-    @classmethod
     def parse_img_prompt_dict(cls, data: Any) -> ImagePrompt:
         """Validate and normalize an image prompt dict from LLM output or JSON."""
         if not isinstance(data, dict):
@@ -288,80 +239,69 @@ class Script:
             f"image_prompt must be an object, array, or null, got {type(data).__name__}"
         )
 
-    def prompt_payload(self) -> dict[str, str]:
-        """Story fields plus title, for stage 3 prompts."""
-        if not self.raw_title:
-            raise ValueError(f"script {self.script_id} missing raw_title")
-        payload = idea_prompt_payload(self.idea)
-        payload["title"] = self.raw_title
-        return payload
-
     def to_json(self) -> dict[str, Any]:
         return {
-            "idea": self.idea,
             "script_id": str(self.script_id),
-            "raw_title": self.raw_title,
-            "script_scenes": self.script_scenes,
+            "model": self.model,
+            "scene": dict(self.scene),
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Script:
+    def from_dict(cls, data: dict[str, Any]) -> SceneScript:
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
-        idea_data = data.get("idea") or data.get("raw_idea")
-        if not isinstance(idea_data, dict):
-            raise ValueError("missing or invalid idea")
-        idea = cls.parse_idea_dict(idea_data)
-        model = str(data.get("model") or idea.get("model") or "").strip()
-        script_id_raw = data.get("script_id") or idea_data.get("idea_id")
+        script_id_raw = data.get("script_id")
         if not script_id_raw:
             raise ValueError("missing script_id")
-        raw_title = data.get("raw_title")
-        if raw_title is not None:
-            raw_title = str(raw_title).strip() or None
-        script_scenes = cls.parse_scenes_list(data.get("script_scenes"))
+        model = str(data.get("model") or "").strip()
+        scene_data = data.get("scene")
+        if scene_data is None:
+            raise ValueError("missing scene")
+        scene = cls.parse_scene_dict(scene_data)
         return cls(
-            idea=idea,
-            model=model,
             script_id=UUID(str(script_id_raw)),
-            raw_title=raw_title,
-            script_scenes=script_scenes,
+            model=model,
+            scene=scene,
         )
 
     @classmethod
-    def load_json(cls, path: str | Path) -> Script:
+    def load_json(cls, path: str | Path) -> SceneScript:
         resolved = Path(path) if isinstance(path, Path) else resolve_path(str(path))
-        if not resolved.exists():
-            raise FileNotFoundError(f"script file not found: {resolved}")
+        if not resolved.is_file():
+            raise FileNotFoundError(f"scene script file not found: {resolved}")
         with resolved.open("r", encoding="utf-8") as handle:
             return cls.from_dict(json.load(handle))
 
     @classmethod
-    def read_all(cls, data_root: str) -> list[Script]:
-        """Load one Script per ``<script_id>/script.json`` under data_root."""
+    def read_all(cls, data_root: str) -> list[SceneScript]:
+        """Load every ``<script_id>/<scene>/script.json`` under data_root."""
         base = resolve_path(data_root)
-        if not base.exists():
+        if not base.is_dir():
             raise FileNotFoundError(f"data root not found: {base}")
-        scripts: list[Script] = []
-        for entry in sorted(base.iterdir(), key=lambda p: p.name):
-            if not entry.is_dir():
+        scripts: list[SceneScript] = []
+        for story_path in sorted(base.iterdir(), key=lambda p: p.name):
+            if not story_path.is_dir():
                 continue
-            script_path = entry / "script.json"
-            if script_path.is_file():
-                scripts.append(cls.load_json(script_path))
+            for scene_path in sorted(
+                (
+                    entry
+                    for entry in story_path.iterdir()
+                    if entry.is_dir() and entry.name.isdigit()
+                ),
+                key=lambda path: int(path.name),
+            ):
+                script_json = scene_path / "script.json"
+                if script_json.is_file():
+                    scripts.append(cls.load_json(script_json))
         if not scripts:
-            raise ValueError(f"no scripts found in {base}")
+            raise ValueError(f"no scene scripts found in {base}")
+        scripts.sort(
+            key=lambda item: (str(item.script_id), item.scene["scene_number"])
+        )
         return scripts
 
-    def save(self, data_root: str) -> None:
-        out = self.to_json()
-        try:
-            out_dir = resolve_path(data_root) / str(self.script_id)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            with (out_dir / "script.json").open("w", encoding="utf-8") as f:
-                json.dump(out, f, indent=2)
-        except Exception:
-            raise
+
+Script = SceneScript
 
 
 _ASPECT_SIZES_SDXL: dict[str, tuple[int, int]] = {
@@ -427,18 +367,48 @@ class GenerationConfig:
 
 
 @dataclass
+class RefinementConfig:
+    enabled: bool = False
+    type: str = "none"
+    model_path: str = "stabilityai/stable-diffusion-xl-refiner-1.0"
+    variant: str | None = "fp16"
+    scheduler: str = "euler"
+    # Total scheduler steps shared by base (denoising_end) and refiner (denoising_start).
+    num_inference_steps: int = 40
+    denoising_start: float = 0.8
+    denoising_end: float = 0.8
+    # Used only when refining a fully decoded PNG from disk (stage 2 alone).
+    image_denoising_start: float = 0.01
+    strength: float = 0.35
+
+
+@dataclass
 class OutputConfig:
     script_path: str = "data/"
+    raw_subdir: str = "raw_images"
+    output_subdir: str = "raw_images"
+    filename_template: str = "scene_{scene_number:02d}_{prompt_number}.png"
+    save_raw: bool = True
     skip_existing: bool = True
 
 
 @dataclass
+class ImageSetupPipelineConfig:
     pipeline_config: DiffusionPipelineConfig = field(
         default_factory=DiffusionPipelineConfig
     )
     quantization_config: QuantizationConfig = field(default_factory=QuantizationConfig)
     generation_config: GenerationConfig = field(default_factory=GenerationConfig)
+    refinement_config: RefinementConfig = field(default_factory=RefinementConfig)
     output_config: OutputConfig = field(default_factory=OutputConfig)
+
+
+def refinement_active(config: ImageSetupPipelineConfig) -> bool:
+    """True when stage 2 should run a refinement backend."""
+    ref_cfg = config.refinement_config
+    if not ref_cfg.enabled:
+        return False
+    return ref_cfg.type.strip().lower() not in {"", "none"}
 
 
 def _load_yaml(path: str) -> dict[str, Any]:
@@ -514,6 +484,9 @@ def load_config(path: str) -> ImageSetupPipelineConfig:
         generation_config=GenerationConfig(
             **_dataclass_kwargs(GenerationConfig, _section(data, "generation_config"))
         ),
+        refinement_config=RefinementConfig(
+            **_dataclass_kwargs(RefinementConfig, _section(data, "refinement_config"))
+        ),
         output_config=OutputConfig(
             **_dataclass_kwargs(OutputConfig, _section(data, "output_config"))
         ),
@@ -550,6 +523,48 @@ def validate_pipeline_config(config: ImageSetupPipelineConfig) -> None:
         )
     if pipeline_cfg.uses_lightning_unet() and pipeline_type != "sdxl":
         raise ValueError("lightning UNet checkpoints require pipeline type sdxl")
+
+    if not refinement_active(config):
+        width = config.generation_config.width
+        height = config.generation_config.height
+        if (width is None) ^ (height is None):
+            raise ValueError(
+                "generation_config width and height must both be set or both omitted"
+            )
+        if width is not None and height is not None:
+            _validate_resolution(width, height)
+        return
+
+    ref_cfg = config.refinement_config
+    ref_type = ref_cfg.type.strip().lower()
+    if pipeline_type == "sd15" and ref_type == "sdxl_refiner":
+        raise ValueError(
+            "sd15 pipelines do not support sdxl_refiner refinement; "
+            "use img2img or disable refinement"
+        )
+    if pipeline_cfg.uses_lightning_unet() and ref_type == "sdxl_refiner":
+        raise ValueError(
+            "lightning UNet checkpoints do not support sdxl_refiner refinement; "
+            "use img2img or disable refinement"
+        )
+    if ref_type == "sdxl_refiner":
+        if not (0.0 < ref_cfg.denoising_start < 1.0):
+            raise ValueError(
+                f"refinement_config.denoising_start must be in (0, 1), "
+                f"got {ref_cfg.denoising_start}"
+            )
+        if ref_cfg.denoising_start != ref_cfg.denoising_end:
+            raise ValueError(
+                "refinement_config.denoising_start and denoising_end must match "
+                f"for SDXL latent handoff ({ref_cfg.denoising_start} != "
+                f"{ref_cfg.denoising_end})"
+            )
+        if not (0.0 <= ref_cfg.image_denoising_start < ref_cfg.denoising_start):
+            raise ValueError(
+                "refinement_config.image_denoising_start must be in "
+                f"[0, denoising_start) for PNG refine-from-disk; got "
+                f"{ref_cfg.image_denoising_start}"
+            )
 
     width = config.generation_config.width
     height = config.generation_config.height

@@ -55,7 +55,7 @@ Example (abbreviated — your scenes should be longer):
 }
 
 Constraints:
-- **{min_beats}–{max_beats} content pairs** per scene (wider narrative; not a single exchange)
+- **Exactly {min_beats}–{max_beats} content pairs** per scene (inclusive; outputs outside this range are invalid)
 - Dialogue must be **complex**: subtext, tension, character-specific diction; avoid on-the-nose exposition
 - Weave in **setting and props** from the outline via Narration and dialogue
 - Every scene must reflect **emotional_beat** and deliver **character_change** by the turn

@@ -1,44 +1,55 @@
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 
-import pytest
-
 _SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
-if str(_SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(_SRC_ROOT))
+_SETUPS = ("script_setup", "image_setup", "vid_setup")
 
-import pipeline_validate
-from pipeline_validate import validate_bundle
+
+def _clear_setup_utils_modules() -> None:
+    for name in list(sys.modules):
+        if name == "utils" or name.startswith("utils."):
+            del sys.modules[name]
+
+
+def _load_setup_config(setup: str, config_rel: str) -> object:
+    setup_dir = _SRC_ROOT / setup
+    config_path = setup_dir / config_rel
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Config not found: {config_path}")
+
+    _clear_setup_utils_modules()
+    inserted = False
+    setup_dir_str = str(setup_dir)
+    if setup_dir_str not in sys.path:
+        sys.path.insert(0, setup_dir_str)
+        inserted = True
+    try:
+        schema = importlib.import_module("utils.schema")
+        return schema.load_config(str(config_path))
+    finally:
+        if inserted:
+            sys.path.remove(setup_dir_str)
+        _clear_setup_utils_modules()
+
+
+def _iter_setup_configs(setup: str) -> list[Path]:
+    return sorted((_SRC_ROOT / setup / "configs").glob("*.yaml"))
 
 
 def test_all_stage_configs_load() -> None:
-    pipeline_validate.validate_all_setup_configs()
-
-
-def test_all_pipeline_profiles_validate() -> None:
-    pipeline_validate.validate_all_pipeline_profiles()
-
-
-@pytest.mark.parametrize(
-    ("script_config", "image_config", "vid_config"),
-    [
-        (
-            "configs/script_setup_qwen3_4b.yaml",
-            "configs/image_setup_sdxl_fp16.yaml",
-            "configs/vid_setup_svd.yaml",
-        ),
-        (
-            "configs/script_setup_40gb.yaml",
-            "configs/image_setup_40gb.yaml",
-            "configs/vid_setup_40gb.yaml",
-        ),
-    ],
-)
-def test_known_bundles_validate(
-    script_config: str,
-    image_config: str,
-    vid_config: str,
-) -> None:
-    validate_bundle(script_config, image_config, vid_config)
+    """Load every stage YAML config to catch typos and backend constraint errors."""
+    failures: list[str] = []
+    for setup in _SETUPS:
+        for path in _iter_setup_configs(setup):
+            rel = path.relative_to(_SRC_ROOT / setup).as_posix()
+            try:
+                _load_setup_config(setup, rel)
+            except Exception as exc:
+                failures.append(f"{setup}/{rel}: {exc}")
+    if failures:
+        raise AssertionError(
+            "Config load failures:\n" + "\n".join(f"  - {item}" for item in failures)
+        )

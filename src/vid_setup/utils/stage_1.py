@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from utils.schema import (
-    Script,
+    SceneScript,
     VidSetupPipelineConfig,
     pipeline_needs_prompt,
     scene_paths_by_script,
@@ -16,27 +16,31 @@ from utils.schema import (
 from utils.vid_diffuser_wrapper import generate_video_from_images, start_vid_diff_engine
 
 
-def _scripts_for_paths(
+def _scene_scripts_for_paths(
     io_cfg,
     paths_by_script: dict[str, list],
-) -> dict[str, Script]:
-    """Load script.json as Script objects for every story with scene images."""
+) -> dict[str, list[SceneScript]]:
+    """Load per-scene script.json for every story with scene images."""
     if not paths_by_script:
         return {}
 
-    scripts_by_id: dict[str, Script] = {}
-    for script in Script.read_all(io_cfg.script_path):
-        script_id = str(script.script_id)
-        if script_id in paths_by_script:
-            scripts_by_id[script_id] = script
+    scene_scripts_by_id: dict[str, list[SceneScript]] = {}
+    for scene_script in SceneScript.read_all(io_cfg.script_path):
+        script_id = str(scene_script.script_id)
+        if script_id not in paths_by_script:
+            continue
+        scene_scripts_by_id.setdefault(script_id, []).append(scene_script)
 
-    missing = sorted(set(paths_by_script) - set(scripts_by_id))
+    for script_id in scene_scripts_by_id:
+        scene_scripts_by_id[script_id].sort(key=lambda item: item.scene_number())
+
+    missing = sorted(set(paths_by_script) - set(scene_scripts_by_id))
     if missing:
         raise FileNotFoundError(
-            "script.json missing for script(s) with scene images: "
+            "per-scene script.json missing for script(s) with scene images: "
             + ", ".join(missing)
         )
-    return scripts_by_id
+    return scene_scripts_by_id
 
 
 def run_stage(
@@ -55,10 +59,10 @@ def run_stage(
         )
         return {"scripts": 0, "raw_written": 0, "raw_skipped": 0, "raw_failed": 0}
 
-    scripts_by_id = _scripts_for_paths(io_cfg, paths_by_script)
+    scene_scripts_by_id = _scene_scripts_for_paths(io_cfg, paths_by_script)
     logger.info(
-        "Loaded %s script(s) from %s",
-        len(scripts_by_id),
+        "Loaded scene scripts for %s story(ies) from %s",
+        len(scene_scripts_by_id),
         io_cfg.script_path,
     )
 
@@ -67,7 +71,7 @@ def run_stage(
         prompt_counts = {
             script_id: len(scenes) for script_id, scenes in paths_by_script.items()
         }
-        validate_scripts_for_video(logger, scripts_by_id, prompt_counts, gen_cfg)
+        validate_scripts_for_video(logger, scene_scripts_by_id, prompt_counts, gen_cfg)
 
     written = 0
     skipped = 0
@@ -98,7 +102,11 @@ def run_stage(
         config.quantization_config,
     ) as (pipeline, using_offload):
         for script_id, scene_paths in paths_by_script.items():
-            script = scripts_by_id[script_id]
+            scene_scripts = scene_scripts_by_id[script_id]
+            scene_scripts_by_number = {
+                scene_script.scene_number(): scene_script
+                for scene_script in scene_scripts
+            }
             for scene in tqdm(
                 scene_paths,
                 desc=f"Generating videos for script {script_id}",
@@ -121,7 +129,12 @@ def run_stage(
                 prompt = None
                 negative_prompt = None
                 if needs_prompt:
-                    prompt, negative_prompt = script.scene_prompts(
+                    scene_script = scene_scripts_by_number.get(scene_number)
+                    if scene_script is None:
+                        raise ValueError(
+                            f"{script_id}: no script.json for scene {scene_number}"
+                        )
+                    prompt, negative_prompt = scene_script.scene_prompts(
                         scene_number,
                         prompt_number,
                         gen_cfg,

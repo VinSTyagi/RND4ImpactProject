@@ -14,13 +14,14 @@ from typing import Callable
 
 from utils.schema import (
     PipelineConfig,
-    Script,
+    SceneScript,
+    StoryIdea,
     load_config,
 )
 
 _SCRIPT_SETUP_DIR = Path(__file__).resolve().parent
 _SRC_ROOT = _SCRIPT_SETUP_DIR.parent
-_DEFAULT_CONFIG = Path("configs/script_setup_qwen3_4b.yaml")
+_DEFAULT_CONFIG = Path("configs/script_setup_12gb.yaml")
 _LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
 
@@ -39,101 +40,113 @@ def configure_logging(level: int = logging.INFO) -> logging.Logger:
 logger = configure_logging()
 
 
-def run_stage_1(pipeline_config: PipelineConfig, state: dict) -> dict:
-    from utils import stage_1, vllm_wrapper
+def _llm_handles(state: dict) -> tuple:
+    """Return (model, sampling_params, tokenizer) from a shared runner session."""
+    try:
+        model = state["model"]
+        sampling_params = state["sampling_params"]
+    except KeyError as exc:
+        raise RuntimeError(
+            "vLLM session not initialized; stages must run inside main()'s "
+            "shared vllm_session"
+        ) from exc
+    tokenizer = state.get("tokenizer")
+    if tokenizer is None:
+        tokenizer = model.get_tokenizer()
+        state["tokenizer"] = tokenizer
+    return model, sampling_params, tokenizer
 
+
+def run_stage_1(pipeline_config: PipelineConfig, state: dict) -> dict:
+    from utils import stage_1
+
+    model, sampling_params, tokenizer = _llm_handles(state)
     vcfg = pipeline_config.global_vllm_config
     idea_cfg = pipeline_config.idea_config
-    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
-        tokenizer = model.get_tokenizer()
-        scripts = stage_1.run_stage(
-            logger,
-            model,
-            sampling_params,
-            tokenizer,
-            idea_cfg,
-            enable_thinking=vcfg.enable_thinking,
-        )
-    for script in scripts:
-        script.save(idea_cfg.output_path)
-    logger.info("Saved %s scripts to %s", len(scripts), idea_cfg.output_path)
-    state["scripts"] = scripts
+    ideas = stage_1.run_stage(
+        logger,
+        model,
+        sampling_params,
+        tokenizer,
+        idea_cfg,
+        enable_thinking=vcfg.enable_thinking,
+    )
+    for idea in ideas:
+        idea.save(idea_cfg.output_path)
+    logger.info("Saved %s ideas to %s", len(ideas), idea_cfg.output_path)
+    state["ideas"] = ideas
     return state
 
 
 def run_stage_2(pipeline_config: PipelineConfig, state: dict) -> dict:
-    from utils import stage_2, vllm_wrapper
+    from utils import stage_2
 
+    model, sampling_params, tokenizer = _llm_handles(state)
     vcfg = pipeline_config.global_vllm_config
     title_cfg = pipeline_config.title_config
-    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
-        tokenizer = model.get_tokenizer()
-        scripts = stage_2.run_stage(
-            logger,
-            model,
-            sampling_params,
-            tokenizer,
-            title_cfg,
-            enable_thinking=vcfg.enable_thinking,
-        )
-    state["scripts"] = scripts
+    ideas = stage_2.run_stage(
+        logger,
+        model,
+        sampling_params,
+        tokenizer,
+        title_cfg,
+        enable_thinking=vcfg.enable_thinking,
+    )
+    state["ideas"] = ideas
     return state
 
 
 def run_stage_3(pipeline_config: PipelineConfig, state: dict) -> dict:
-    from utils import stage_3, vllm_wrapper
+    from utils import stage_3
 
+    model, sampling_params, tokenizer = _llm_handles(state)
     vcfg = pipeline_config.global_vllm_config
     scene_cfg = pipeline_config.scene_outline_config
-    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
-        tokenizer = model.get_tokenizer()
-        scripts = stage_3.run_stage(
-            logger,
-            model,
-            sampling_params,
-            tokenizer,
-            scene_cfg,
-            enable_thinking=vcfg.enable_thinking,
-        )
-    state["scripts"] = scripts
+    scene_scripts = stage_3.run_stage(
+        logger,
+        model,
+        sampling_params,
+        tokenizer,
+        scene_cfg,
+        enable_thinking=vcfg.enable_thinking,
+    )
+    state["scene_scripts"] = scene_scripts
     return state
 
 
 def run_stage_4(pipeline_config: PipelineConfig, state: dict) -> dict:
-    from utils import stage_4, vllm_wrapper
+    from utils import stage_4
 
+    model, sampling_params, tokenizer = _llm_handles(state)
     vcfg = pipeline_config.global_vllm_config
     content_cfg = pipeline_config.scene_content_config
-    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
-        tokenizer = model.get_tokenizer()
-        scripts = stage_4.run_stage(
-            logger,
-            model,
-            sampling_params,
-            tokenizer,
-            content_cfg,
-            enable_thinking=vcfg.enable_thinking,
-        )
-    state["scripts"] = scripts
+    scene_scripts = stage_4.run_stage(
+        logger,
+        model,
+        sampling_params,
+        tokenizer,
+        content_cfg,
+        enable_thinking=vcfg.enable_thinking,
+    )
+    state["scene_scripts"] = scene_scripts
     return state
 
 
 def run_stage_5(pipeline_config: PipelineConfig, state: dict) -> dict:
-    from utils import stage_5, vllm_wrapper
+    from utils import stage_5
 
+    model, sampling_params, tokenizer = _llm_handles(state)
     vcfg = pipeline_config.global_vllm_config
     img_prompt_cfg = pipeline_config.image_config
-    with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
-        tokenizer = model.get_tokenizer()
-        scripts = stage_5.run_stage(
-            logger,
-            model,
-            sampling_params,
-            tokenizer,
-            img_prompt_cfg,
-            enable_thinking=vcfg.enable_thinking,
-        )
-    state["scripts"] = scripts
+    scene_scripts = stage_5.run_stage(
+        logger,
+        model,
+        sampling_params,
+        tokenizer,
+        img_prompt_cfg,
+        enable_thinking=vcfg.enable_thinking,
+    )
+    state["scene_scripts"] = scene_scripts
     return state
 
 
@@ -166,7 +179,10 @@ def resolve_stages(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run one or more script_setup pipeline stages.",
+        description=(
+            "Run one or more script_setup stages. Multiple stages (or --all) "
+            "share one vLLM session: load once, run all stages, shut down once."
+        ),
     )
     parser.add_argument(
         "--config",
@@ -236,15 +252,32 @@ def main() -> None:
     state: dict = {}
     ran_stages = False
     try:
-        for n in stages:
-            logger.info("=== Stage %s ===", n)
-            STAGES[n](pipeline_config, state)
+        from utils import vllm_wrapper
+
+        with vllm_wrapper.vllm_session(vcfg) as (model, sampling_params):
+            state["model"] = model
+            state["sampling_params"] = sampling_params
+            state["tokenizer"] = model.get_tokenizer()
+            logger.info(
+                "Loaded vLLM model once for stages: %s",
+                ", ".join(str(n) for n in stages),
+            )
+            for n in stages:
+                logger.info("=== Stage %s ===", n)
+                STAGES[n](pipeline_config, state)
+                vllm_wrapper.cleanup_after_stage()
+                logger.info("Stage %s cleanup done (vLLM model still loaded)", n)
         ran_stages = True
 
-        scripts = state.get("scripts")
-        if scripts:
-            for script in scripts:
-                print(json.dumps(script.to_json()))
+        ideas: list[StoryIdea] | None = state.get("ideas")
+        if ideas:
+            for idea in ideas:
+                print(json.dumps(idea.to_json()))
+
+        scene_scripts: list[SceneScript] | None = state.get("scene_scripts")
+        if scene_scripts:
+            for scene_script in scene_scripts:
+                print(json.dumps(scene_script.to_json()))
     finally:
         if ran_stages and os.environ.get("RND4IMPACT_KEEP_MODELS") != "1":
             if str(_SRC_ROOT) not in sys.path:

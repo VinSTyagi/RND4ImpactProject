@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_DIR="$ROOT/docker/vid_setup"
-CONFIG="${VID_SETUP_CONFIG:-configs/vid_setup_svd.yaml}"
+CONFIG="${VID_SETUP_CONFIG:-configs/vid_setup_12gb.yaml}"
 BUILD=0
 RUNNER_ARGS=()
 
@@ -17,7 +17,7 @@ run and are cached in the `rnd4impact_vid_hf_cache` Docker volume.
 
 Options:
   --build              Run docker compose build before starting the container
-  --config PATH        YAML config inside the container (default: configs/vid_setup_svd.yaml)
+  --config PATH        YAML config inside the container (default: configs/vid_setup_12gb.yaml)
   -h, --help           Show this help
 
 Environment:
@@ -25,7 +25,7 @@ Environment:
 
 Examples:
   ./scripts/docker-run-vid-setup.sh --build
-  ./scripts/docker-run-vid-setup.sh --config configs/vid_setup_svd.yaml
+  ./scripts/docker-run-vid-setup.sh --config configs/vid_setup_12gb.yaml
 EOF
 }
 

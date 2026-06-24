@@ -16,6 +16,7 @@ if "PIL" not in sys.modules:
     sys.modules["PIL.Image"] = types.ModuleType("Image")
 
 from utils.llm_helper import strip_reasoning
+from utils.schema import clamp_scene_content_beats, parse_scene_content
 from utils.stage_4 import parse_content_from_text, validate_beat_count
 
 
@@ -87,3 +88,25 @@ def test_validate_beat_count() -> None:
 def test_missing_scene_content_field_raises() -> None:
     with pytest.raises(ValueError, match="missing field: scene_content"):
         parse_content_from_text('{"dialogue": []}')
+
+
+def test_clamp_one_beat_over_max_preserves_opening_and_closing() -> None:
+    beats = [(f"C{i}", f"line {i}") for i in range(16)]
+    beats[0] = ("Narration", "opening")
+    beats[1] = ("Hero", "setup")
+    beats[-3] = ("Hero", "turn")
+    beats[-2] = ("Villain", "threat")
+    beats[-1] = ("Narration", "ends on image")
+
+    clamped = clamp_scene_content_beats(beats, max_beats=15)
+    assert len(clamped) == 15
+    assert clamped[0] == ("Narration", "opening")
+    assert clamped[1] == ("Hero", "setup")
+    assert clamped[-3:] == beats[-3:]
+
+
+def test_parse_content_clamps_slightly_over_max_beats() -> None:
+    pairs = ",\n".join(f'["Narration", "beat {i}"]' for i in range(16))
+    payload = f'{{"scene_content": [{pairs}]}}'
+    content = parse_content_from_text(payload, min_beats=10, max_beats=15)
+    assert len(content) == 15

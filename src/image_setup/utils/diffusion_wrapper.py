@@ -11,7 +11,9 @@ import torch
 from diffusers import (
     DPMSolverMultistepScheduler,
     EulerDiscreteScheduler,
+    StableDiffusionImg2ImgPipeline,
     StableDiffusionPipeline,
+    StableDiffusionXLImg2ImgPipeline,
     StableDiffusionXLPipeline,
 )
 from huggingface_hub import hf_hub_download
@@ -32,11 +34,13 @@ if TYPE_CHECKING:
         GenerationConfig,
         ImagePrompt,
         QuantizationConfig,
+        RefinementConfig,
     )
 
 logger = logging.getLogger(__name__)
 
 PipelineType = Literal["sdxl", "sd15"]
+OutputType = Literal["pil", "latent"]
 
 _TURBO_CFG_MAX = 2.0
 _DTYPE_MAP = {
@@ -53,20 +57,33 @@ class DiffusionTxt2ImgPipeline(Protocol):
     def __call__(self, **kwargs: Any) -> Any: ...
 
 
+class DiffusionImg2ImgPipeline(Protocol):
+    def __call__(self, **kwargs: Any) -> Any: ...
+
+
 @dataclass(frozen=True)
 class PipelineFamily:
     name: PipelineType
     txt2img_cls: type
+    img2img_cls: type
+    supports_refiner: bool
+    supports_latent_handoff: bool
 
 
 _PIPELINE_FAMILIES: dict[PipelineType, PipelineFamily] = {
     "sdxl": PipelineFamily(
         name="sdxl",
         txt2img_cls=StableDiffusionXLPipeline,
+        img2img_cls=StableDiffusionXLImg2ImgPipeline,
+        supports_refiner=True,
+        supports_latent_handoff=True,
     ),
     "sd15": PipelineFamily(
         name="sd15",
         txt2img_cls=StableDiffusionPipeline,
+        img2img_cls=StableDiffusionImg2ImgPipeline,
+        supports_refiner=False,
+        supports_latent_handoff=False,
     ),
 }
 
@@ -104,14 +121,18 @@ def _normalize_variant(variant: str | None) -> str | None:
 def _build_load_kwargs(
     pipeline_cfg: DiffusionPipelineConfig,
     quant_cfg: QuantizationConfig,
+    *,
+    variant: str | None = None,
 ) -> dict[str, Any]:
     load_kwargs: dict[str, Any] = {
         "torch_dtype": _resolve_torch_dtype(quant_cfg.torch_dtype),
         "use_safetensors": True,
     }
-    variant = _normalize_variant(pipeline_cfg.variant)
-    if variant:
-        load_kwargs["variant"] = variant
+    resolved_variant = _normalize_variant(
+        pipeline_cfg.variant if variant is None else variant
+    )
+    if resolved_variant:
+        load_kwargs["variant"] = resolved_variant
     return load_kwargs
 
 
@@ -222,6 +243,55 @@ def load_txt2img_pipeline(
     return pipeline
 
 
+def load_img2img_pipeline(
+    model_path: str,
+    pipeline_cfg: DiffusionPipelineConfig,
+    quant_cfg: QuantizationConfig,
+    gen_cfg: GenerationConfig,
+    *,
+    scheduler: str | None = None,
+    base_pipeline: DiffusionTxt2ImgPipeline | None = None,
+    variant: str | None = None,
+) -> DiffusionImg2ImgPipeline:
+    family = get_pipeline_family(pipeline_cfg.type)
+    load_kwargs = _build_load_kwargs(pipeline_cfg, quant_cfg, variant=variant)
+    scheduler_name = scheduler if scheduler is not None else pipeline_cfg.scheduler
+
+    if base_pipeline is not None and family.name == "sdxl":
+        logger.info(
+            "Loading %s img2img pipeline from %s (shared encoders)",
+            family.name,
+            model_path,
+        )
+        pipeline = family.img2img_cls.from_pretrained(
+            model_path,
+            text_encoder_2=base_pipeline.text_encoder_2,
+            vae=base_pipeline.vae,
+            **load_kwargs,
+        )
+    else:
+        logger.info("Loading %s img2img pipeline from %s", family.name, model_path)
+        pipeline = family.img2img_cls.from_pretrained(
+            model_path,
+            **load_kwargs,
+        )
+
+    _prepare_loaded_pipeline(
+        pipeline,
+        pipeline_cfg,
+        quant_cfg,
+        gen_cfg,
+        scheduler_name=scheduler_name,
+    )
+    logger.info(
+        "%s img2img pipeline ready (device=%s, scheduler=%s)",
+        family.name,
+        gen_cfg.device,
+        scheduler_name,
+    )
+    return pipeline
+
+
 def cleanup() -> None:
     gc.collect()
     if torch.cuda.is_available():
@@ -272,7 +342,9 @@ def generate_scene_image(
     pipeline_type: str,
     pipeline_cfg: DiffusionPipelineConfig,
     seed_offset: int = 0,
-) -> Image.Image:
+    output_type: OutputType = "pil",
+    denoising_end: float | None = None,
+) -> Image.Image | torch.Tensor:
     family = get_pipeline_family(pipeline_type)
     positive, negative, width, height = _prompt_bundle(
         image_prompt, pipeline_type, gen_cfg
@@ -280,25 +352,124 @@ def generate_scene_image(
     guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
     generator, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
 
+    pipeline_output_type = "latent" if output_type == "latent" else "pil"
+    call_kwargs: dict[str, Any] = {
+        "prompt": positive,
+        "negative_prompt": negative,
+        "width": width,
+        "height": height,
+        "num_inference_steps": gen_cfg.num_inference_steps,
+        "guidance_scale": guidance_scale,
+        "generator": generator,
+        "output_type": pipeline_output_type,
+    }
+    if denoising_end is not None:
+        if not family.supports_latent_handoff:
+            raise ValueError(
+                f"{family.name} pipelines do not support latent handoff (denoising_end)"
+            )
+        call_kwargs["denoising_end"] = denoising_end
+
     logger.info(
-        "Generating image (%dx%d, steps=%s, cfg=%.2f, seed=%s, family=%s)",
+        "Generating raw image (%dx%d, steps=%s, cfg=%.2f, seed=%s, output=%s, family=%s)",
         width,
         height,
         gen_cfg.num_inference_steps,
         guidance_scale,
         seed,
+        pipeline_output_type,
         family.name,
+    )
+
+    result = pipeline(**call_kwargs)
+    if output_type == "latent":
+        latents = result.images
+        if not isinstance(latents, torch.Tensor):
+            raise TypeError(
+                f"expected latent tensor from pipeline, got {type(latents).__name__}"
+            )
+        return latents
+    return result.images[0]
+
+
+def resolve_refiner_denoising_start(
+    image: Image.Image | torch.Tensor,
+    ref_cfg: RefinementConfig,
+) -> float:
+    """Latent tensors use the handoff point; decoded PNGs need a near-zero start."""
+    if isinstance(image, Image.Image):
+        return ref_cfg.image_denoising_start
+    return ref_cfg.denoising_start
+
+
+def refine_scene_sdxl_refiner(
+    pipeline: DiffusionImg2ImgPipeline,
+    image_prompt: ImagePrompt,
+    gen_cfg: GenerationConfig,
+    ref_cfg: RefinementConfig,
+    pipeline_cfg: DiffusionPipelineConfig,
+    image: Image.Image | torch.Tensor,
+    seed_offset: int = 0,
+) -> Image.Image:
+    positive, negative, _, _ = _prompt_bundle(image_prompt, "sdxl", gen_cfg)
+    guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
+    generator, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
+    denoising_start = resolve_refiner_denoising_start(image, ref_cfg)
+    input_kind = "latent" if not isinstance(image, Image.Image) else "pil"
+
+    logger.info(
+        "Refining image (input=%s, steps=%s, cfg=%.2f, denoising_start=%.3f, seed=%s)",
+        input_kind,
+        ref_cfg.num_inference_steps,
+        guidance_scale,
+        denoising_start,
+        seed,
     )
 
     result = pipeline(
         prompt=positive,
         negative_prompt=negative,
-        width=width,
-        height=height,
-        num_inference_steps=gen_cfg.num_inference_steps,
+        image=image,
+        num_inference_steps=ref_cfg.num_inference_steps,
+        denoising_start=denoising_start,
         guidance_scale=guidance_scale,
         generator=generator,
-        output_type="pil",
+    )
+    return result.images[0]
+
+
+def refine_scene_img2img(
+    pipeline: DiffusionImg2ImgPipeline,
+    image_prompt: ImagePrompt,
+    gen_cfg: GenerationConfig,
+    ref_cfg: RefinementConfig,
+    *,
+    pipeline_type: str,
+    pipeline_cfg: DiffusionPipelineConfig,
+    image: Image.Image,
+    seed_offset: int = 0,
+) -> Image.Image:
+    positive, negative, _, _ = _prompt_bundle(image_prompt, pipeline_type, gen_cfg)
+    guidance_scale = _resolve_guidance_scale(image_prompt, gen_cfg, pipeline_cfg)
+    generator, seed = _resolve_generator(gen_cfg.device, gen_cfg, seed_offset)
+
+    logger.info(
+        "Refining image via img2img (steps=%s, cfg=%.2f, strength=%.2f, seed=%s, family=%s)",
+        ref_cfg.num_inference_steps,
+        guidance_scale,
+        ref_cfg.strength,
+        seed,
+        pipeline_type,
+    )
+
+    result = pipeline(
+        prompt=positive,
+        negative_prompt=negative,
+        image=image,
+        strength=ref_cfg.strength,
+        num_inference_steps=ref_cfg.num_inference_steps,
+        guidance_scale=guidance_scale,
+        generator=generator,
     )
     return result.images[0]
 
@@ -318,6 +489,36 @@ def txt2img_session(
         cleanup()
 
 
+@contextlib.contextmanager
+def img2img_session(
+    model_path: str,
+    pipeline_cfg: DiffusionPipelineConfig,
+    quant_cfg: QuantizationConfig,
+    gen_cfg: GenerationConfig,
+    *,
+    scheduler: str | None = None,
+    base_pipeline: DiffusionTxt2ImgPipeline | None = None,
+    variant: str | None = None,
+):
+    """Load an img2img pipeline for one run and guarantee cleanup on exit."""
+    pipeline = load_img2img_pipeline(
+        model_path,
+        pipeline_cfg,
+        quant_cfg,
+        gen_cfg,
+        scheduler=scheduler,
+        base_pipeline=base_pipeline,
+        variant=variant,
+    )
+    try:
+        yield pipeline
+    finally:
+        del pipeline
+        cleanup()
+
+
 # Backward-compatible aliases for SDXL-specific call sites.
 sdxl_session = txt2img_session
+sdxl_img2img_session = img2img_session
 load_sdxl_pipeline = load_txt2img_pipeline
+load_sdxl_img2img_pipeline = load_img2img_pipeline

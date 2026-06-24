@@ -7,7 +7,7 @@ import time
 from prompts.prompt_reader import load_prompt_md
 from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import completion_text, parse_json_array, strip_reasoning
-from utils.schema import Idea, IdeaConfig, Script, resolve_path
+from utils.schema import Idea, IdeaConfig, StoryIdea, resolve_path
 
 
 def run_stage(
@@ -17,7 +17,7 @@ def run_stage(
     tokenizer,
     config: IdeaConfig,
     enable_thinking: bool = True,
-) -> list[Script]:
+) -> list[StoryIdea]:
     logger.info("Beginning stage 1 (idea generation)")
     logger.info(
         "Running vLLM generate for %s ideas (batch_size=%s)",
@@ -25,7 +25,7 @@ def run_stage(
         config.batch_size,
     )
     start = time.perf_counter()
-    scripts = generate_scripts(
+    ideas = generate_ideas(
         logger,
         model,
         config,
@@ -35,7 +35,7 @@ def run_stage(
     )
     elapsed = time.perf_counter() - start
     logger.info("Stage 1 total time: %.2fs", elapsed)
-    return scripts
+    return ideas
 
 
 def _idea_counts(num_ideas: int, batch_size: int) -> list[int]:
@@ -64,14 +64,14 @@ def _idea_user_prompt(count: int) -> str:
     )
 
 
-def generate_scripts(
+def generate_ideas(
     logger: logging.Logger,
     model,
     config: IdeaConfig,
     sampling_params,
     tokenizer,
     enable_thinking: bool = True,
-) -> list[Script]:
+) -> list[StoryIdea]:
     num_ideas = config.num_ideas
     prompt_path = resolve_path(config.prompt_path)
     sys_prompt = load_prompt_md(str(prompt_path))
@@ -93,19 +93,19 @@ def generate_scripts(
         label="stage 1",
     )
 
-    ideas: list[Idea] = []
+    parsed_ideas: list[Idea] = []
     for index, request_output in enumerate(raw_outputs, start=1):
         answer_text = strip_reasoning(completion_text([request_output]))
         logger.info("Model answer (batch %s/%s):\n%s", index, len(raw_outputs), answer_text)
-        ideas.extend(parse_ideas_from_text(answer_text))
+        parsed_ideas.extend(parse_ideas_from_text(answer_text))
 
     model_name = model.llm_engine.model_config.model
-    scripts = [Script(idea=idea, model=model_name) for idea in ideas]
-    for script in scripts:
-        script.idea["model"] = model_name
-    if len(scripts) != num_ideas:
-        logger.warning("Expected %s ideas but parsed %s", num_ideas, len(scripts))
-    return scripts
+    stories = [StoryIdea(idea=idea, model=model_name) for idea in parsed_ideas]
+    for story in stories:
+        story.idea["model"] = model_name
+    if len(stories) != num_ideas:
+        logger.warning("Expected %s ideas but parsed %s", num_ideas, len(stories))
+    return stories
 
 
 def _format_idea_prompt(
@@ -146,17 +146,7 @@ def parse_ideas_from_text(text: str) -> list[Idea]:
     ideas: list[Idea] = []
     for index, item in enumerate(items):
         try:
-            ideas.append(Script.parse_idea_dict(item))
+            ideas.append(StoryIdea.parse_idea_dict(item))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"idea at index {index}: {exc}") from exc
     return ideas
-
-
-def clean_scripts(raw_outputs, model_name: str = "") -> list[Script]:
-    """Strip LLM wrappers and parse stage-1 output into Script objects."""
-    ideas = parse_ideas_from_text(strip_reasoning(completion_text(raw_outputs)))
-    scripts = [Script(idea=idea, model=model_name) for idea in ideas]
-    for script in scripts:
-        if model_name:
-            script.idea["model"] = model_name
-    return scripts

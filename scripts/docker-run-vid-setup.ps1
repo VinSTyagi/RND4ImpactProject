@@ -1,7 +1,7 @@
 # Build (optional) and run vid_setup in Docker.
 param(
     [switch]$Build,
-    [string]$Config = "configs/vid_setup_svd.yaml",
+    [string]$Config = "configs/vid_setup_12gb.yaml",
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RunnerArgs
 )
@@ -17,14 +17,14 @@ run and are cached in the compose hf_cache volume (rnd4impact_vid_hf_cache).
 
 Options:
   -Build               Run docker compose build before starting the container
-  -Config PATH         YAML config inside the container (default: configs/vid_setup_svd.yaml)
+  -Config PATH         YAML config inside the container (default: configs/vid_setup_12gb.yaml)
 
 Environment:
   `$env:VID_SETUP_CONFIG   Default config when -Config is omitted
 
 Examples:
   .\scripts\docker-run-vid-setup.ps1 -Build
-  .\scripts\docker-run-vid-setup.ps1 -Config configs/vid_setup_svd.yaml
+  .\scripts\docker-run-vid-setup.ps1 -Config configs/vid_setup_12gb.yaml
 "@
 }
 

@@ -78,4 +78,4 @@ COPY README.md LICENSE /workspace/
 
 WORKDIR /workspace/src
 
-CMD ["python", "script_setup/script_setup_runner.py", "--config", "configs/script_setup_qwen3_4b.yaml", "--all"]
+CMD ["python", "script_setup/script_setup_runner.py", "--config", "configs/script_setup_12gb.yaml", "--all"]

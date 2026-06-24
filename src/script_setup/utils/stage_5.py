@@ -15,7 +15,9 @@ from utils.llm_helper import (
 from utils.schema import (
     ImagePrompt,
     ImagePromptConfig,
-    Script,
+    SceneScript,
+    StoryIdea,
+    cast_visual_context,
     resolve_path,
     scene_payload,
 )
@@ -28,22 +30,29 @@ def run_stage(
     tokenizer,
     config: ImagePromptConfig,
     enable_thinking: bool = False,
-) -> list[Script]:
+) -> list[SceneScript]:
     logger.info("Beginning stage 5 (SDXL image prompt generation)")
-    scripts = Script.read_all(config.script_path)
-    logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
+    ideas = {
+        str(idea.script_id): idea for idea in StoryIdea.read_all(config.script_path)
+    }
+    scene_scripts = SceneScript.read_all(config.script_path)
     logger.info(
-        "Processing %s script(s) one at a time "
+        "Loaded %s scene script(s) from %s",
+        len(scene_scripts),
+        config.script_path,
+    )
+    logger.info(
+        "Processing %s scene script(s) "
         "(scene batch_size=%s, image prompts=%s-%s)",
-        len(scripts),
+        len(scene_scripts),
         config.batch_size,
         config.min_prompts,
         config.max_prompts,
     )
     start = time.perf_counter()
 
-    if not scripts:
-        raise ValueError("stage 5 received no scripts")
+    if not scene_scripts:
+        raise ValueError("stage 5 received no scene scripts")
 
     if config.min_prompts < 1:
         raise ValueError("image_config.min_prompts must be at least 1")
@@ -53,42 +62,36 @@ def run_stage(
             f"({config.max_prompts} < {config.min_prompts})"
         )
 
-    missing_scenes = [x for x in scripts if not x.script_scenes]
-    if missing_scenes:
-        missing_ids = ", ".join(str(script.script_id) for script in missing_scenes)
-        raise ValueError(
-            f"stage 5 requires all scripts to have at least one scene; missing for {len(missing_scenes)} script(s): "
-            f"{missing_ids}"
-        )
-
-    scripts = generate_prompts(
+    scene_scripts = generate_prompts(
         logger,
         model,
-        scripts,
+        ideas,
+        scene_scripts,
         config,
         sampling_params,
         tokenizer,
         enable_thinking=enable_thinking,
     )
 
-    for script in scripts:
-        script.save(config.script_path)
-    logger.info("Saved %s scripts to %s", len(scripts), config.script_path)
+    for scene_script in scene_scripts:
+        scene_script.save(config.script_path)
+    logger.info("Saved %s scene script(s) to %s", len(scene_scripts), config.script_path)
 
     elapsed = time.perf_counter() - start
     logger.info("Stage 5 total time: %.2fs", elapsed)
-    return scripts
+    return scene_scripts
 
 
 def generate_prompts(
     logger: logging.Logger,
     model,
-    scripts: list[Script],
+    ideas: dict[str, StoryIdea],
+    scene_scripts: list[SceneScript],
     config: ImagePromptConfig,
     sampling_params,
     tokenizer,
     enable_thinking: bool = False,
-) -> list[Script]:
+) -> list[SceneScript]:
     prompt_path = resolve_path(config.prompt_path)
     system_prompt_template = load_prompt_md(str(prompt_path))
     if not system_prompt_template:
@@ -105,66 +108,88 @@ def generate_prompts(
     min_prompts = config.min_prompts
     max_prompts = config.max_prompts
 
-    for script in scripts:
-        scenes = script.script_scenes or []
+    for scene_script in scene_scripts:
+        idea = ideas.get(str(scene_script.script_id))
+        if idea is None:
+            raise ValueError(
+                f"missing idea.json for story {scene_script.script_id} "
+                "(run stages 1–2 first)"
+            )
+        scene = scene_script.scene
         logger.info(
-            "Script: %s — submitting %s scene(s) for image prompt generation (batch_size=%s)",
-            script.script_id,
-            len(scenes),
+            "Story %s scene %s — image prompt generation (batch_size=%s)",
+            scene_script.script_id,
+            scene["scene_number"],
             config.batch_size,
         )
         chat_prompts = format_user_prompts(
             tokenizer,
             system_prompt,
-            scenes,
+            idea,
+            [scene],
             min_prompts=min_prompts,
             max_prompts=max_prompts,
             enable_thinking=enable_thinking,
         )
-        generate_start = time.perf_counter()
-        raw_outputs = run_llm_generations(
-            model,
-            chat_prompts,
-            sampling_params,
-            batch_size=config.batch_size,
-            logger=logger,
-            label=f"stage 5 script {script.script_id}",
-        )
-        generate_elapsed = time.perf_counter() - generate_start
-        logger.info("vLLM generate completed in %.2fs", generate_elapsed)
 
-        if len(raw_outputs) != len(scenes):
+        max_attempts = 2
+        prompts_by_scene: list[ImagePrompt] | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            generate_start = time.perf_counter()
+            raw_outputs = run_llm_generations(
+                model,
+                chat_prompts,
+                sampling_params,
+                batch_size=config.batch_size if attempt == 1 else 1,
+                logger=logger,
+                label=(
+                    f"stage 5 story {scene_script.script_id} "
+                    f"scene {scene['scene_number']}"
+                ),
+            )
+            generate_elapsed = time.perf_counter() - generate_start
+            logger.info("vLLM generate completed in %.2fs", generate_elapsed)
+
+            try:
+                answer_text = strip_reasoning(request_output_text(raw_outputs[0]))
+                prompts_by_scene = parse_prompts_from_text(
+                    answer_text,
+                    min_prompts=min_prompts,
+                    max_prompts=max_prompts,
+                )
+                break
+            except ValueError as exc:
+                if attempt >= max_attempts:
+                    raise ValueError(
+                        f"failed to parse image prompts for story {scene_script.script_id} "
+                        f"scene {scene['scene_number']}: {exc}"
+                    ) from exc
+                logger.warning(
+                    "Failed to parse image prompts for story %s scene %s "
+                    "(attempt %s/%s): %s",
+                    scene_script.script_id,
+                    scene["scene_number"],
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+
+        if prompts_by_scene is None:
             raise ValueError(
-                f"expected {len(scenes)} vLLM output(s) for script {script.script_id} "
-                f"but received {len(raw_outputs)}"
+                f"failed to generate image prompts for story {scene_script.script_id} "
+                f"scene {scene['scene_number']}"
             )
 
-        prompts_by_scene: list[list[ImagePrompt]] = []
-        for i, output in enumerate(raw_outputs):
-            try:
-                answer_text = strip_reasoning(request_output_text(output))
-                prompts_by_scene.append(
-                    parse_prompts_from_text(
-                        answer_text,
-                        min_prompts=min_prompts,
-                        max_prompts=max_prompts,
-                    )
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    f"failed to parse image prompts for script {script.script_id} "
-                    f"scene {i}: {exc}"
-                ) from exc
-
-        script.script_scenes = Script.attach_scene_image_prompts(
-            scenes,
+        scene_script.scene = SceneScript.attach_scene_image_prompts(
+            scene,
             prompts_by_scene,
             min_prompts=min_prompts,
             max_prompts=max_prompts,
         )
-        script.model = model_name
+        scene_script.model = model_name
 
-    return scripts
+    return scene_scripts
 
 
 def _format_system_prompt(
@@ -183,8 +208,8 @@ def _format_system_prompt(
 def parse_prompts_from_text(
     text: str,
     *,
-    min_prompts: int = 1,
-    max_prompts: int = 5,
+    min_prompts: int,
+    max_prompts: int,
 ) -> list[ImagePrompt]:
     try:
         payload = parse_json_array(text)
@@ -197,7 +222,7 @@ def parse_prompts_from_text(
     prompts: list[ImagePrompt] = []
     for i, item in enumerate(payload):
         try:
-            image_prompt = Script.parse_img_prompt_dict(item)
+            image_prompt = SceneScript.parse_img_prompt_dict(item)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"image prompt at index {i}: {exc}") from exc
 
@@ -214,21 +239,24 @@ def parse_prompts_from_text(
 def format_user_prompts(
     tokenizer,
     system_prompt: str,
+    idea: StoryIdea,
     scenes: list,
     *,
     min_prompts: int,
     max_prompts: int,
     enable_thinking: bool = False,
 ) -> list[str]:
+    cast_descriptions = cast_visual_context(idea)
     scene_prompts = [
         [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": (
-                    f"Here is a scene JSON object. Produce {min_prompts} to {max_prompts} "
-                    "Stable Diffusion XL prompt objects as a JSON array.\n"
-                    f"{json.dumps(scene_payload(scene), ensure_ascii=False)}"
+                    f"Here is a scene JSON object. Produce a JSON array with no fewer than "
+                    f"{min_prompts} and no more than {max_prompts} Stable Diffusion XL "
+                    "prompt objects (inclusive range).\n"
+                    f"{json.dumps({'cast_descriptions': cast_descriptions, 'scene': scene_payload(scene)}, ensure_ascii=False)}"
                 ),
             },
         ]
