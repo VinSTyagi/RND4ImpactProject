@@ -7,18 +7,16 @@ from json import JSONDecodeError
 
 from prompts.prompt_reader import load_prompt_md
 from utils.llm_helper import (
-    parse_json_object,
+    parse_json_array,
     request_output_text,
     strip_reasoning,
 )
 from utils.schema import (
-    Scene,
-    SceneContentConfig,
+    ImagePrompt,
+    ImagePromptConfig,
     Script,
-    idea_prompt_payload,
-    parse_scene_content,
     resolve_path,
-    scene_outline_payload,
+    scene_payload,
 )
 
 
@@ -27,27 +25,27 @@ def run_stage(
     model,
     sampling_params,
     tokenizer,
-    config: SceneContentConfig,
+    config: ImagePromptConfig,
     enable_thinking: bool = False,
 ) -> list[Script]:
-    logger.info("Beginning stage 4 (scene script generation)")
+    logger.info("Beginning stage 5 (SDXL image prompt generation)")
     scripts = Script.read_all(config.script_path)
     logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
     logger.info("Running vLLM generate for %s scripts", len(scripts))
     start = time.perf_counter()
 
     if not scripts:
-        raise ValueError("stage 4 received no scripts")
+        raise ValueError("stage 5 received no scripts")
 
     missing_scenes = [x for x in scripts if not x.script_scenes]
     if missing_scenes:
         missing_ids = ", ".join(str(script.script_id) for script in missing_scenes)
         raise ValueError(
-            f"stage 4 requires scene outlines from stage 3; missing for "
-            f"{len(missing_scenes)} script(s): {missing_ids}"
+            f"stage 5 requires all scripts to have at least one scene; missing for {len(missing_scenes)} script(s): "
+            f"{missing_ids}"
         )
 
-    scripts = generate_scene_content(
+    scripts = generate_prompts(
         logger,
         model,
         scripts,
@@ -62,15 +60,15 @@ def run_stage(
     logger.info("Saved %s scripts to %s", len(scripts), config.script_path)
 
     elapsed = time.perf_counter() - start
-    logger.info("Stage 4 total time: %.2fs", elapsed)
+    logger.info("Stage 5 total time: %.2fs", elapsed)
     return scripts
 
 
-def generate_scene_content(
+def generate_prompts(
     logger: logging.Logger,
     model,
     scripts: list[Script],
-    config: SceneContentConfig,
+    config: ImagePromptConfig,
     sampling_params,
     tokenizer,
     enable_thinking: bool = False,
@@ -83,19 +81,22 @@ def generate_scene_content(
         )
 
     model_name = model.llm_engine.model_config.model
+    min_prompts = config.min_prompts
+    max_prompts = config.max_prompts
 
     for script in scripts:
         scenes = script.script_scenes or []
         logger.info(
-            "Script: %s — submitting %s scene(s) for script generation",
+            "Script: %s — submitting %s scene(s) for image prompt generation",
             script.script_id,
             len(scenes),
         )
         chat_prompts = format_user_prompts(
             tokenizer,
             system_prompt,
-            script,
             scenes,
+            min_prompts=min_prompts,
+            max_prompts=max_prompts,
             enable_thinking=enable_thinking,
         )
         generate_start = time.perf_counter()
@@ -109,82 +110,95 @@ def generate_scene_content(
                 f"but received {len(raw_outputs)}"
             )
 
-        scene_contents: list[list[tuple[str, str]]] = []
+        prompts_by_scene: list[list[ImagePrompt]] = []
         for i, output in enumerate(raw_outputs):
             try:
                 answer_text = strip_reasoning(request_output_text(output))
-                scene_contents.append(parse_content_from_text(answer_text))
+                prompts_by_scene.append(
+                    parse_prompts_from_text(
+                        answer_text,
+                        min_prompts=min_prompts,
+                        max_prompts=max_prompts,
+                    )
+                )
             except ValueError as exc:
                 raise ValueError(
-                    f"failed to parse scene_content for script {script.script_id} "
+                    f"failed to parse image prompts for script {script.script_id} "
                     f"scene {i}: {exc}"
                 ) from exc
 
-        script.script_scenes = Script.merge_scene_content(scenes, scene_contents)
+        script.script_scenes = Script.attach_scene_image_prompts(
+            scenes,
+            prompts_by_scene,
+            min_prompts=min_prompts,
+            max_prompts=max_prompts,
+        )
         script.model = model_name
 
     return scripts
 
 
-def parse_content_from_text(text: str) -> list[tuple[str, str]]:
+def parse_prompts_from_text(
+    text: str,
+    *,
+    min_prompts: int = 1,
+    max_prompts: int = 5,
+) -> list[ImagePrompt]:
     try:
-        payload = parse_json_object(text)
+        payload = parse_json_array(text)
     except JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in model output: {exc}") from exc
 
-    if not isinstance(payload, dict):
-        raise ValueError("expected a JSON object with scene_content")
+    if not isinstance(payload, list):
+        raise ValueError("expected a JSON array of image prompt objects")
 
-    if "scene_content" not in payload:
-        raise ValueError("missing field: scene_content")
+    prompts: list[ImagePrompt] = []
+    for i, item in enumerate(payload):
+        try:
+            image_prompt = Script.parse_img_prompt_dict(item)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"image prompt at index {i}: {exc}") from exc
 
-    return parse_scene_content(payload["scene_content"])
+        prompts.append(image_prompt)
+
+    if len(prompts) < min_prompts or len(prompts) > max_prompts:
+        raise ValueError(
+            f"expected {min_prompts}-{max_prompts} image prompt(s) but parsed {len(prompts)}"
+        )
+
+    return prompts
 
 
 def format_user_prompts(
     tokenizer,
     system_prompt: str,
-    script: Script,
-    scenes: list[Scene],
+    scenes: list,
+    *,
+    min_prompts: int,
+    max_prompts: int,
     enable_thinking: bool = False,
 ) -> list[str]:
-    if not script.raw_title:
-        raise ValueError(f"script {script.script_id} missing raw_title")
-
-    story_payload = idea_prompt_payload(script.idea)
-    story_payload["title"] = script.raw_title
-
-    scene_prompts = []
-    for scene in scenes:
-        user_payload = {
-            "story": story_payload,
-            "scene": scene_outline_payload(scene),
-        }
-        messages = [
+    scene_prompts = [
+        [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": (
-<<<<<<< HEAD
-                    "Here is a scene JSON object. Produce ONE image-prompt object as a JSON array "
-                    "with exactly one element.\n"
-                    "Use string arrays for positive_prompt and negative_prompt. "
-                    "Include cfg_scale (integer 5–12) tuned to this scene's visual complexity.\n"
+                    f"Here is a scene JSON object. Produce {min_prompts} to {max_prompts} "
+                    "Stable Diffusion XL prompt objects as a JSON array.\n"
                     f"{json.dumps(scene_payload(scene), ensure_ascii=False)}"
-=======
-                    "Here is the story and scene outline. Produce scene_content as a JSON object.\n"
-                    f"{json.dumps(user_payload, ensure_ascii=False)}"
->>>>>>> 50234f7d874a79315f043b5b26b599fff0f293c9
                 ),
             },
         ]
-        scene_prompts.append(
-            tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=enable_thinking,
-            )
-        )
+        for scene in scenes
+    ]
 
-    return scene_prompts
+    return [
+        tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=enable_thinking,
+        )
+        for messages in scene_prompts
+    ]

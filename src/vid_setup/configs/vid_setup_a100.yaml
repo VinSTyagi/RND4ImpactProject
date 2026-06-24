@@ -26,11 +26,11 @@ generation_config:
 
 io_config:
   script_path: data/
-  input_subdir: raw_images
-  image_template: "scene_{scene_number:02d}.png"
+  input_subdir: refined_images
+  image_template: "scene_{scene_number}_{prompt_number}.png"
   raw_videos_subdir: raw_videos
   refined_videos_subdir: refined_videos
-  video_template: "scene_{scene_number:02d}.mp4"
+  video_template: "scene_{scene_number}_{prompt_number}.mp4"
   save_raw: true
   skip_existing: true
 

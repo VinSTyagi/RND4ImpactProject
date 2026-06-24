@@ -101,6 +101,7 @@ class ImagePrompt(TypedDict):
 class Scene(TypedDict):
     scene_number: int
     scene_title: str
+    scene_content: list[tuple[str, str]]
     act: str
     setting: str
     characters: list[str]
@@ -109,7 +110,25 @@ class Scene(TypedDict):
     emotional_beat: str
     character_change: str
     ends_on: str
-    image_prompt: ImagePrompt | None
+    image_prompt: list[ImagePrompt] | None
+
+
+def parse_scene_content(data: Any) -> list[tuple[str, str]]:
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        raise TypeError("scene_content must be an array")
+    content: list[tuple[str, str]] = []
+    for index, item in enumerate(data):
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            character = str(item[0]).strip()
+            text = str(item[1])
+            if not character:
+                raise ValueError(f"scene_content[{index}]: character name must be non-empty")
+            content.append((character, text))
+            continue
+        raise ValueError(f"scene_content[{index}] must be a 2-element array")
+    return content
 
 
 def scene_payload(scene: Scene) -> dict[str, str]:
@@ -172,11 +191,8 @@ class Script:
         if not isinstance(scene_number, int):
             raise TypeError("scene_number must be an integer")
 
-        image_prompt_data = data.get("image_prompt")
-        if image_prompt_data is None:
-            scene_image_prompt = None
-        else:
-            scene_image_prompt = cls.parse_img_prompt_dict(image_prompt_data)
+        scene_content = parse_scene_content(data.get("scene_content"))
+        scene_image_prompt = cls.parse_img_prompt_list(data.get("image_prompt"))
 
         scene_characters = [
             str(name).strip() for name in characters if str(name).strip()
@@ -189,6 +205,7 @@ class Script:
             "act": act,
             "characters": scene_characters,
             "scene_title": str(data["scene_title"]).strip(),
+            "scene_content": scene_content,
             "setting": str(data["setting"]).strip(),
             "summary": str(data["summary"]).strip(),
             "conflict": str(data["conflict"]).strip(),
@@ -258,19 +275,18 @@ class Script:
         return normalized  # type: ignore[return-value]
 
     @classmethod
-    def attach_image_prompts(
-        cls, scenes: list[Scene], image_prompts: list[ImagePrompt]
-    ) -> list[Scene]:
-        """Return scenes with image_prompt set from a parallel prompt list."""
-        if len(scenes) != len(image_prompts):
-            raise ValueError(
-                f"expected {len(scenes)} image prompt(s) but received "
-                f"{len(image_prompts)}"
-            )
-        updated: list[Scene] = []
-        for scene, image_prompt in zip(scenes, image_prompts):
-            updated.append({**scene, "image_prompt": image_prompt})
-        return updated
+    def parse_img_prompt_list(cls, data: Any) -> list[ImagePrompt] | None:
+        if data is None:
+            return None
+        if isinstance(data, dict):
+            return [cls.parse_img_prompt_dict(data)]
+        if isinstance(data, list):
+            if not data:
+                raise ValueError("image_prompt must be null or a non-empty array")
+            return [cls.parse_img_prompt_dict(item) for item in data]
+        raise TypeError(
+            f"image_prompt must be an object, array, or null, got {type(data).__name__}"
+        )
 
     def prompt_payload(self) -> dict[str, str]:
         """Story fields plus title, for stage 3 prompts."""
@@ -413,13 +429,10 @@ class GenerationConfig:
 @dataclass
 class OutputConfig:
     script_path: str = "data/"
-    output_subdir: str = "raw_images"
-    filename_template: str = "scene_{scene_number:02d}.png"
     skip_existing: bool = True
 
 
 @dataclass
-class ImageSetupPipelineConfig:
     pipeline_config: DiffusionPipelineConfig = field(
         default_factory=DiffusionPipelineConfig
     )
@@ -602,18 +615,59 @@ def format_negative_prompt(tags: list[str]) -> str:
     return join_prompt_tags(truncate_tags_to_clip(tags))
 
 
-def _scene_filename(scene_number: int, output_cfg: OutputConfig) -> str:
-    return output_cfg.filename_template.format(scene_number=scene_number)
+def _scene_filename(
+    scene_number: int,
+    prompt_number: int,
+    output_cfg: OutputConfig,
+) -> str:
+    return output_cfg.filename_template.format(
+        scene_number=scene_number,
+        prompt_number=prompt_number,
+    )
+
+
+def scene_prompt_output_path(
+    script_id: UUID | str,
+    scene_number: int,
+    prompt_number: int,
+    output_cfg: OutputConfig,
+    *,
+    subdir: str,
+) -> Path:
+    return (
+        resolve_path(output_cfg.script_path)
+        / str(script_id)
+        / str(scene_number)
+        / subdir
+        / _scene_filename(scene_number, prompt_number, output_cfg)
+    )
 
 
 def scene_output_path(
     script_id: UUID | str,
     scene_number: int,
+    prompt_number: int,
     output_cfg: OutputConfig,
 ) -> Path:
-    return (
-        resolve_path(output_cfg.script_path)
-        / str(script_id)
-        / output_cfg.output_subdir
-        / _scene_filename(scene_number, output_cfg)
+    return scene_prompt_output_path(
+        script_id,
+        scene_number,
+        prompt_number,
+        output_cfg,
+        subdir=output_cfg.output_subdir,
+    )
+
+
+def scene_raw_output_path(
+    script_id: UUID | str,
+    scene_number: int,
+    prompt_number: int,
+    output_cfg: OutputConfig,
+) -> Path:
+    return scene_prompt_output_path(
+        script_id,
+        scene_number,
+        prompt_number,
+        output_cfg,
+        subdir=output_cfg.raw_subdir,
     )

@@ -238,6 +238,46 @@ def loads_json_text(text: str) -> Any:
     return _try_loads_json_text(text)
 
 
+def extract_json_object_text(text: str) -> str:
+    cleaned = strip_markdown_fences(text)
+    start = cleaned.find("{")
+    if start == -1:
+        raise ValueError("no JSON object found in model output")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for index, char in enumerate(cleaned[start:], start):
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return cleaned[start : index + 1]
+
+    raise ValueError("no complete JSON object found in model output")
+
+
+def parse_json_object(text: str) -> Any:
+    """Extract and parse the first top-level JSON object from LLM output."""
+    cleaned = strip_markdown_fences(text)
+    try:
+        object_text = extract_json_object_text(text)
+    except ValueError:
+        return _try_loads_json_text(cleaned)
+    return _try_loads_json_text(object_text)
+
+
 def parse_json_array(text: str) -> Any:
     """Extract and parse the first top-level JSON array from LLM output."""
     cleaned = strip_markdown_fences(text)

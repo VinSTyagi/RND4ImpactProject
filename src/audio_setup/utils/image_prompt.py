@@ -1,4 +1,4 @@
-"""Normalize SD image prompts for CLIP token limits (script_setup stage 5)."""
+"""Normalize SD image prompts for CLIP token limits (audio_setup)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 CLIP_TARGET_TOKENS = 60
 CLIP_HARD_LIMIT = 77
 REASONING_MAX_WORDS = 25
-NEGATIVE_SCENE_EXCLUSION_LIMIT = 5
+NEGATIVE_SCENE_EXCLUSION_LIMIT = 3
 
 VALID_STYLE_PRESETS = frozenset(
     {
@@ -34,9 +34,6 @@ NEGATIVE_PROMPT_BASE = (
     "low quality",
     "bad anatomy",
     "deformed",
-    "extra hands",
-    "extra arms",
-    "extra legs",
     "watermark",
     "text",
     "cartoon",

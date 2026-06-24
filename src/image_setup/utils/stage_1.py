@@ -5,6 +5,7 @@ from typing import Iterator
 
 from utils import diffusion_wrapper
 from utils.schema import (
+    ImagePrompt,
     ImageSetupPipelineConfig,
     Scene,
     Script,
@@ -19,21 +20,22 @@ _PIPELINE_LOADERS = {
 
 
 def validate_scripts(scripts: list[Script]) -> None:
-    """Ensure every script has scenes with image prompts before loading the pipeline."""
+    """Ensure every script has scenes with image prompt lists before loading the pipeline."""
     errors: list[str] = []
     for script in scripts:
         if not script.script_scenes:
             errors.append(f"{script.script_id}: missing script_scenes")
             continue
         for scene in script.script_scenes:
-            if scene.get("image_prompt") is None:
+            prompts = scene.get("image_prompt")
+            if not prompts:
                 errors.append(
                     f"{script.script_id}: scene {scene['scene_number']} missing image_prompt"
                 )
     if errors:
         raise ValueError(
             "image generation requires image_prompt on every scene "
-            "(run stage 4 of the script pipeline first):\n"
+            "(run stage 5 of the script pipeline first):\n"
             + "\n".join(f"  - {item}" for item in errors)
             + "\n\nPopulate image_prompt in data/<script_id>/script.json, then re-run image_setup."
         )
@@ -43,6 +45,28 @@ def iter_scenes(script: Script) -> Iterator[tuple[Script, Scene]]:
     scenes = script.script_scenes or []
     for scene in sorted(scenes, key=lambda item: item["scene_number"]):
         yield script, scene
+
+
+def iter_scene_prompts(
+    script: Script,
+) -> Iterator[tuple[Script, Scene, int, ImagePrompt]]:
+    for script_item, scene in iter_scenes(script):
+        prompts = scene.get("image_prompt") or []
+        for prompt_number, image_prompt in enumerate(prompts):
+            yield script_item, scene, prompt_number, image_prompt
+
+
+def _latent_handoff_enabled(
+    config: ImageSetupPipelineConfig,
+    stages: list[int],
+) -> bool:
+    ref_cfg = config.refinement_config
+    return (
+        refinement_active(config)
+        and 2 in stages
+        and ref_cfg.type.strip().lower() == "sdxl_refiner"
+        and not config.output_config.save_raw
+    )
 
 
 def run_stage(
@@ -69,6 +93,7 @@ def run_stage(
 
     written = 0
     skipped = 0
+    latent_handoffs: dict[tuple[str, int, int], object] = {}
 
     with session_factory(
         config.pipeline_config,
@@ -77,40 +102,98 @@ def run_stage(
     ) as pipeline:
         pipeline_cfg = config.pipeline_config
         for script in scripts:
-            for _, scene in iter_scenes(script):
+            for _, scene, prompt_number, image_prompt in iter_scene_prompts(script):
                 scene_number = scene["scene_number"]
                 script_id = str(script.script_id)
                 output_path = scene_output_path(
                     script.script_id, scene_number, output_cfg
                 )
 
-                if output_cfg.skip_existing and output_path.is_file():
-                    logger.info(
-                        "Skipping script %s scene %s (output exists): %s",
-                        script_id,
+                if refine:
+                    raw_path = scene_raw_output_path(
+                        script.script_id,
                         scene_number,
-                        output_path,
+                        prompt_number,
+                        output_cfg,
                     )
-                    skipped += 1
-                    continue
+                    final_path = scene_output_path(
+                        script.script_id,
+                        scene_number,
+                        prompt_number,
+                        output_cfg,
+                    )
+                    if output_cfg.skip_existing:
+                        if final_path.is_file():
+                            logger.info(
+                                "Skipping script %s scene %s prompt %s (final exists): %s",
+                                script_id,
+                                scene_number,
+                                prompt_number,
+                                final_path,
+                            )
+                            skipped += 1
+                            continue
+                        if not use_latent_handoff and raw_path.is_file():
+                            logger.info(
+                                "Skipping script %s scene %s prompt %s (raw exists): %s",
+                                script_id,
+                                scene_number,
+                                prompt_number,
+                                raw_path,
+                            )
+                            skipped += 1
+                            continue
+                else:
+                    raw_path = scene_output_path(
+                        script.script_id,
+                        scene_number,
+                        prompt_number,
+                        output_cfg,
+                    )
+                    if output_cfg.skip_existing and raw_path.is_file():
+                        logger.info(
+                            "Skipping script %s scene %s prompt %s (output exists): %s",
+                            script_id,
+                            scene_number,
+                            prompt_number,
+                            raw_path,
+                        )
+                        skipped += 1
+                        continue
+
+                denoising_end = ref_cfg.denoising_end if use_latent_handoff else None
+                output_type = "latent" if use_latent_handoff else "pil"
+                seed_offset = scene_number * 10 + prompt_number
 
                 result = diffusion_wrapper.generate_scene_image(
                     pipeline,
-                    scene["image_prompt"],
+                    image_prompt,
                     gen_cfg,
                     pipeline_type=pipeline_type,
                     pipeline_cfg=pipeline_cfg,
-                    seed_offset=scene_number,
+                    seed_offset=seed_offset,
+                    output_type=output_type,
+                    denoising_end=denoising_end,
                 )
 
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                result.save(output_path)
-                logger.info(
-                    "Saved image for script %s scene %s to %s",
-                    script_id,
-                    scene_number,
-                    output_path,
-                )
+                if use_latent_handoff:
+                    latent_handoffs[(script_id, scene_number, prompt_number)] = result
+                    logger.info(
+                        "Generated raw latent for script %s scene %s prompt %s",
+                        script_id,
+                        scene_number,
+                        prompt_number,
+                    )
+                else:
+                    raw_path.parent.mkdir(parents=True, exist_ok=True)
+                    result.save(raw_path)
+                    logger.info(
+                        "Saved raw image for script %s scene %s prompt %s to %s",
+                        script_id,
+                        scene_number,
+                        prompt_number,
+                        raw_path,
+                    )
                 written += 1
 
     state["scripts"] = scripts

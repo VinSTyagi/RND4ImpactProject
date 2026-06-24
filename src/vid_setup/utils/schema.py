@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 import yaml
+
+logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_ROOT = Path(__file__).resolve().parents[2]
@@ -178,13 +182,226 @@ class InputOutputConfig:
     """Script-relative paths for scene images and generated videos."""
 
     script_path: str = "data/"
-    input_subdir: str = "raw_images"
-    image_template: str = "scene_{scene_number:02d}.png"
+    input_subdir: str = "refined_images"
+    image_template: str = "scene_{scene_number}_{prompt_number}.png"
     raw_videos_subdir: str = "raw_videos"
     refined_videos_subdir: str = "refined_videos"
-    video_template: str = "scene_{scene_number:02d}.mp4"
+    video_template: str = "scene_{scene_number}_{prompt_number}.mp4"
     save_raw: bool = True
     skip_existing: bool = True
+
+
+def _coerce_prompt_tags(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list):
+        return [str(tag).strip() for tag in value if str(tag).strip()]
+    return []
+
+
+def format_prompt_tags(tags: list[str]) -> str:
+    return ", ".join(tag for tag in tags if tag)
+
+
+@dataclass
+class Script:
+    """Script metadata loaded from ``data/<script_id>/script.json``."""
+
+    script_id: UUID
+    script_scenes: list[dict[str, Any]] | None = None
+    raw_title: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Script:
+        if not isinstance(data, dict):
+            raise TypeError(f"expected dict, got {type(data).__name__}")
+
+        script_id_raw = data.get("script_id")
+        if not script_id_raw:
+            idea = data.get("idea") or data.get("raw_idea") or {}
+            if isinstance(idea, dict):
+                script_id_raw = idea.get("idea_id")
+        if not script_id_raw:
+            raise ValueError("script.json missing script_id")
+
+        raw_scenes = data.get("script_scenes")
+        script_scenes: list[dict[str, Any]] | None = None
+        if raw_scenes is not None:
+            if not isinstance(raw_scenes, list):
+                raise ValueError("script_scenes must be a list or null")
+            script_scenes = []
+            for index, item in enumerate(raw_scenes):
+                if isinstance(item, str):
+                    try:
+                        item = json.loads(item)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(
+                            f"script_scenes[{index}] is not valid JSON: {exc}"
+                        ) from exc
+                if not isinstance(item, dict):
+                    raise ValueError(
+                        f"script_scenes[{index}] must be an object, "
+                        f"got {type(item).__name__}"
+                    )
+                script_scenes.append(item)
+
+        raw_title = data.get("raw_title")
+        if raw_title is not None:
+            raw_title = str(raw_title).strip() or None
+
+        return cls(
+            script_id=UUID(str(script_id_raw)),
+            script_scenes=script_scenes,
+            raw_title=raw_title,
+        )
+
+    @classmethod
+    def load_json(cls, path: str | Path) -> Script:
+        resolved = Path(path)
+        if not resolved.is_file():
+            raise FileNotFoundError(f"script file not found: {resolved}")
+        with resolved.open("r", encoding="utf-8") as handle:
+            return cls.from_dict(json.load(handle))
+
+    @classmethod
+    def load_for_script_id(
+        cls,
+        script_id: UUID | str,
+        io_cfg: InputOutputConfig,
+    ) -> Script:
+        script_path = _resolve_path(io_cfg.script_path) / str(script_id) / "script.json"
+        return cls.load_json(script_path)
+
+    @classmethod
+    def read_all(cls, data_root: str) -> list[Script]:
+        """Load one Script per ``<script_id>/script.json`` under data_root."""
+        base = _resolve_path(data_root)
+        if not base.is_dir():
+            raise FileNotFoundError(f"data root not found: {base}")
+        scripts: list[Script] = []
+        for entry in sorted(base.iterdir(), key=lambda p: p.name):
+            if not entry.is_dir():
+                continue
+            script_path = entry / "script.json"
+            if script_path.is_file():
+                scripts.append(cls.load_json(script_path))
+        return scripts
+
+    @classmethod
+    def load_by_ids(
+        cls,
+        script_ids: list[str],
+        io_cfg: InputOutputConfig,
+    ) -> dict[str, Script]:
+        scripts: dict[str, Script] = {}
+        for script_id in script_ids:
+            scripts[script_id] = cls.load_for_script_id(script_id, io_cfg)
+        return scripts
+
+    def scene_by_number(self, scene_number: int) -> dict[str, Any] | None:
+        scenes = self.script_scenes or []
+        for scene in scenes:
+            if scene.get("scene_number") == scene_number:
+                return scene
+        if 0 <= scene_number < len(scenes):
+            return scenes[scene_number]
+        return None
+
+    def scene_prompts(
+        self,
+        scene_number: int,
+        prompt_number: int,
+        gen_cfg: GenerationConfig,
+    ) -> tuple[str, str]:
+        """Positive/negative prompts for one scene prompt from image_prompt, with config fallback."""
+        default_positive = (gen_cfg.prompt or "").strip()
+        default_negative = (gen_cfg.negative_prompt or "").strip()
+
+        scene = self.scene_by_number(scene_number)
+        if scene is None:
+            return default_positive, default_negative
+
+        image_prompt_data = scene.get("image_prompt")
+        if image_prompt_data is None:
+            return default_positive, default_negative
+
+        if isinstance(image_prompt_data, dict):
+            prompts = [image_prompt_data]
+        elif isinstance(image_prompt_data, list):
+            prompts = image_prompt_data
+        else:
+            return default_positive, default_negative
+
+        if prompt_number < 0 or prompt_number >= len(prompts):
+            return default_positive, default_negative
+
+        image_prompt = prompts[prompt_number]
+        if not isinstance(image_prompt, dict):
+            return default_positive, default_negative
+
+        positive = format_prompt_tags(
+            _coerce_prompt_tags(image_prompt.get("positive_prompt"))
+        )
+        negative = format_prompt_tags(
+            _coerce_prompt_tags(image_prompt.get("negative_prompt"))
+        )
+        return positive or default_positive, negative or default_negative
+
+
+def validate_scripts_for_video(
+    log: logging.Logger,
+    scripts_by_id: dict[str, Script],
+    prompt_counts: dict[str, int],
+    gen_cfg: GenerationConfig,
+) -> None:
+    """Ensure every scene prompt has a positive prompt before loading a prompted video model."""
+    errors: list[str] = []
+    for script_id, total_prompts in prompt_counts.items():
+        script = scripts_by_id.get(script_id)
+        if script is None:
+            errors.append(f"{script_id}: script.json not loaded")
+            continue
+        checked = 0
+        for scene in sorted(
+            script.script_scenes or [],
+            key=lambda item: item.get("scene_number", 0),
+        ):
+            scene_number = int(scene.get("scene_number", checked))
+            image_prompt_data = scene.get("image_prompt")
+            if isinstance(image_prompt_data, dict):
+                prompt_items = [image_prompt_data]
+            elif isinstance(image_prompt_data, list):
+                prompt_items = image_prompt_data
+            else:
+                prompt_items = []
+            for prompt_number in range(len(prompt_items)):
+                positive, _ = script.scene_prompts(scene_number, prompt_number, gen_cfg)
+                if not positive:
+                    errors.append(
+                        f"{script_id}: scene {scene_number} prompt {prompt_number} "
+                        "has no positive prompt "
+                        "(set image_prompt.positive_prompt in script.json or "
+                        "generation_config.prompt)"
+                    )
+                checked += 1
+        if checked != total_prompts:
+            errors.append(
+                f"{script_id}: expected {total_prompts} prompt(s) from paths "
+                f"but script.json defines {checked}"
+            )
+
+    if errors:
+        raise ValueError(
+            "video generation with prompted backends requires a positive prompt "
+            "for every scene prompt:\n" + "\n".join(f"  - {item}" for item in errors)
+        )
+
+    log.info(
+        "Validated prompts for %s script(s), %s scene prompt(s)",
+        len(scripts_by_id),
+        sum(prompt_counts.values()),
+    )
 
 
 @dataclass
@@ -426,12 +643,26 @@ def pipeline_generation_kwargs(
     return kwargs
 
 
-def _scene_image_filename(scene_number: int, io_cfg: InputOutputConfig) -> str:
-    return io_cfg.image_template.format(scene_number=scene_number)
+def _scene_image_filename(
+    scene_number: int,
+    prompt_number: int,
+    io_cfg: InputOutputConfig,
+) -> str:
+    return io_cfg.image_template.format(
+        scene_number=scene_number,
+        prompt_number=prompt_number,
+    )
 
 
-def _scene_video_filename(scene_number: int, io_cfg: InputOutputConfig) -> str:
-    return io_cfg.video_template.format(scene_number=scene_number)
+def _scene_video_filename(
+    scene_number: int,
+    prompt_number: int,
+    io_cfg: InputOutputConfig,
+) -> str:
+    return io_cfg.video_template.format(
+        scene_number=scene_number,
+        prompt_number=prompt_number,
+    )
 
 
 def _resolve_path(rel: str) -> Path:
@@ -448,6 +679,7 @@ def _resolve_path(rel: str) -> Path:
 @dataclass(frozen=True)
 class ScenePaths:
     scene_number: int
+    prompt_number: int
     image: Path
     raw_video: Path
     refined_video: Path
@@ -456,20 +688,33 @@ class ScenePaths:
 def scene_paths(
     script_id: UUID | str,
     scene_number: int,
+    prompt_number: int,
     io_cfg: InputOutputConfig,
 ) -> ScenePaths:
-    """Resolved image, raw-video, and refined-video paths for one scene."""
-    base = _resolve_path(io_cfg.script_path) / str(script_id)
+    """Resolved image, raw-video, and refined-video paths for one scene prompt."""
+    base = _resolve_path(io_cfg.script_path) / str(script_id) / str(scene_number)
     return ScenePaths(
         scene_number=scene_number,
-        image=base / io_cfg.input_subdir / _scene_image_filename(scene_number, io_cfg),
+        prompt_number=prompt_number,
+        image=base
+        / io_cfg.input_subdir
+        / _scene_image_filename(scene_number, prompt_number, io_cfg),
         raw_video=base
         / io_cfg.raw_videos_subdir
-        / _scene_video_filename(scene_number, io_cfg),
+        / _scene_video_filename(scene_number, prompt_number, io_cfg),
         refined_video=base
         / io_cfg.refined_videos_subdir
-        / _scene_video_filename(scene_number, io_cfg),
+        / _scene_video_filename(scene_number, prompt_number, io_cfg),
     )
+
+
+def _prompt_count_for_scene(scene: dict[str, Any]) -> int:
+    image_prompt_data = scene.get("image_prompt")
+    if isinstance(image_prompt_data, dict):
+        return 1
+    if isinstance(image_prompt_data, list):
+        return len(image_prompt_data)
+    return 0
 
 
 def script_base_path(io_cfg: InputOutputConfig) -> Path | None:
@@ -503,28 +748,29 @@ def _scene_numbers_from_script(script_id: UUID | str, io_cfg: InputOutputConfig)
 def scene_paths_for_script(
     script_id: UUID | str,
     io_cfg: InputOutputConfig,
+    script: Script | None = None,
 ) -> list[ScenePaths]:
-    """All scene paths for one script, aligned with script.json when available."""
-    scene_numbers = _scene_numbers_from_script(script_id, io_cfg)
-    if scene_numbers:
-        paths = [scene_paths(script_id, scene_number, io_cfg) for scene_number in scene_numbers]
-        return [path for path in paths if path.image.is_file()]
+    """All scene prompt paths for one script, driven by script.json."""
+    if script is None:
+        script = Script.load_for_script_id(script_id, io_cfg)
 
     results: list[ScenePaths] = []
-    scene_number = 0
-    while True:
-        paths = scene_paths(script_id, scene_number, io_cfg)
-        if not paths.image.exists():
-            break
-        results.append(paths)
-        scene_number += 1
+    for scene in sorted(
+        script.script_scenes or [],
+        key=lambda item: item.get("scene_number", 0),
+    ):
+        scene_number = int(scene.get("scene_number", len(results)))
+        for prompt_number in range(_prompt_count_for_scene(scene)):
+            paths = scene_paths(script_id, scene_number, prompt_number, io_cfg)
+            if paths.image.is_file():
+                results.append(paths)
     return results
 
 
 def scene_paths_by_script(
     io_cfg: InputOutputConfig,
 ) -> dict[str, list[ScenePaths]]:
-    """Map each script UUID under ``io_cfg.script_path`` to its scene paths."""
+    """Map each script UUID under ``io_cfg.script_path`` to its scene prompt paths."""
     base = script_base_path(io_cfg)
     if base is None:
         return {}
@@ -537,7 +783,11 @@ def scene_paths_by_script(
             UUID(entry.name)
         except ValueError:
             continue
-        scenes = scene_paths_for_script(entry.name, io_cfg)
+        script_path = entry / "script.json"
+        if not script_path.is_file():
+            continue
+        script = Script.load_json(script_path)
+        scenes = scene_paths_for_script(entry.name, io_cfg, script)
         if scenes:
             result[entry.name] = scenes
     return result

@@ -18,11 +18,12 @@ def run_stage(
     model,
     sampling_params,
     tokenizer,
-    scripts: list[Script],
     config: TitleConfig,
     enable_thinking: bool = False,
 ) -> list[Script]:
     logger.info("Beginning stage 2 (title generation)")
+    scripts = Script.read_all(config.script_path)
+    logger.info("Loaded %s scripts from %s", len(scripts), config.script_path)
     logger.info("Running vLLM generate for %s scripts", len(scripts))
     start = time.perf_counter()
 
@@ -38,6 +39,10 @@ def run_stage(
         tokenizer,
         enable_thinking=enable_thinking,
     )
+
+    for script in scripts:
+        script.save(config.script_path)
+    logger.info("Saved %s scripts to %s", len(scripts), config.script_path)
 
     elapsed = time.perf_counter() - start
     logger.info("Stage 2 total time: %.2fs", elapsed)

@@ -40,9 +40,15 @@ higher peak on 6GB consumer cards.
 ## Prompts
 
 Prompt-based backends (`ltx`, `sana`, `cogvideox`, `wan`) load `data/<script_id>/script.json`
-via `[utils/script.py](../utils/script.py)` and use each scene's `image_prompt.positive_prompt`
-and `image_prompt.negative_prompt` (from script_setup stage 4). Config
-`generation_config.prompt` / `negative_prompt` are used when a scene has no `image_prompt`.
+via `[utils/schema.py](../utils/schema.py)` and use each scene prompt's
+`image_prompt[prompt_number].positive_prompt` and `negative_prompt` (from script_setup
+stage 5). Config `generation_config.prompt` / `negative_prompt` are used when a scene
+prompt has no `image_prompt`.
+
+Input images are read from
+`data/<script_id>/<scene_number>/refined_images/scene_<scene>_<prompt>.png`.
+Videos are written to
+`data/<script_id>/<scene_number>/raw_videos/scene_<scene>_<prompt>.mp4`.
 
 ## Tuning ladder (when OOM)
 
