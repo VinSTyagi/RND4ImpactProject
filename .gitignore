@@ -5,7 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
-.idea/
+
 
 # Distribution / packaging
 .Python
@@ -230,3 +230,6 @@ uv.lock
 .vscode/
 docs/
 .venv-docker-test
+/out
+
+.idea/
