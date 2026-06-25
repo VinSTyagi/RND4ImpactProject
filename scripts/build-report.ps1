@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $reportsDir = Join-Path $repoRoot "reports"
 $texPath = Join-Path $reportsDir "$Name.tex"
+# Example: .\scripts\build-report.ps1 "Weekly Report 5 (06-22-2026 - 06-28-2026)"
 
 if (-not (Test-Path $texPath)) {
     throw "Report not found: $texPath"
