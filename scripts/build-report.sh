@@ -17,5 +17,6 @@ if [[ ! -f "$tex" ]]; then
 fi
 
 cd "$root/reports"
-latexmk -pdf -outdir="out/${name}" "${name}.tex"
+# latexmkrc sets $out_dir = out/<jobname> relative to reports/
+latexmk -pdf "${name}.tex"
 echo "Built: $root/reports/out/${name}/${name}.pdf"

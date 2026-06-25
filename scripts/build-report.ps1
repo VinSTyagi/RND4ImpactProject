@@ -15,7 +15,8 @@ if (-not (Test-Path $texPath)) {
 
 Push-Location $reportsDir
 try {
-    latexmk -pdf -outdir="out/$Name" "$Name.tex"
+    # latexmkrc sets $out_dir = out/<jobname> relative to reports/
+    latexmk -pdf "$Name.tex"
     $pdf = Join-Path $reportsDir (Join-Path "out" (Join-Path $Name "$Name.pdf"))
     Write-Host "Built: $pdf"
 }
