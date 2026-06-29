@@ -152,6 +152,31 @@ Verify CUDA after syncing a GPU package (example: `rnd4impact-vid-setup`):
 
 Expect `2.6.0+cu124` and `True` when an NVIDIA driver is installed.
 
+### Full pipeline (all three setups)
+
+Run **script_setup** (stages 1–5) → **image_setup** (raw + refine) → **vid_setup**
+sequentially with native Python (no Docker). Use matching `*_40gb.yaml` configs by
+default; override the tier with `RND4IMPACT_VRAM_TIER` (`6gb`, `12gb`, `24gb`,
+`40gb`, `80gb`). Requires `uv sync` and a Linux GPU host for script_setup (vLLM).
+
+**One line, from repo root:**
+
+```bash
+.venv/bin/python src/script_setup/script_setup_runner.py --config configs/script_setup_40gb.yaml --all && .venv/bin/python src/image_setup/image_setup_runner.py --config configs/image_setup_40gb.yaml --all && .venv/bin/python src/vid_setup/vid_setup_runner.py --config configs/vid_setup_40gb.yaml
+```
+
+**Wrapper script (same command):**
+
+```bash
+./scripts/run-full-pipeline.sh
+```
+
+**12 GB tier:**
+
+```bash
+RND4IMPACT_VRAM_TIER=12gb ./scripts/run-full-pipeline.sh
+```
+
 ### script_setup — run pipeline stages
 
 The runner takes one flag per stage; combine them freely or use `--all`. All

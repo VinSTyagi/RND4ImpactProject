@@ -15,8 +15,8 @@ quantization_config:
   enable_xformers: false
 
 generation_config:
-  num_inference_steps: 45
-  num_frames: 45
+  num_inference_steps: 40
+  num_frames: 48
   width: 1024
   height: 576
   frame_rate: 24
