@@ -33,34 +33,6 @@ def resolve_path(rel: str) -> Path:
     return _SRC_ROOT / path
 
 
-_IDEA_FIELDS = (
-    "genre",
-    "setting",
-    "premise",
-    "protagonist",
-    "antagonist",
-    "hook",
-    "tone",
-    "theme",
-)
-
-
-class Idea(TypedDict):
-    genre: str
-    setting: str
-    premise: str
-    protagonist: str
-    antagonist: str
-    hook: str
-    tone: str
-    theme: str
-    model: str
-
-
-def idea_prompt_payload(idea: Idea) -> dict[str, str]:
-    """Story fields only, for stage 2+ prompts."""
-    return {name: idea[name] for name in _IDEA_FIELDS}
-
 
 IMAGE_PROMPT_FIELDS = (
     "positive_prompt",
@@ -112,7 +84,6 @@ class Scene(TypedDict):
     emotional_beat: str
     character_change: str
     ends_on: str
-    image_prompt: list[ImagePrompt] | None
 
 
 def parse_scene_content(data: Any) -> list[tuple[str, str]]:
@@ -144,6 +115,7 @@ class SceneScript:
     script_id: UUID
     model: str
     scene: Scene
+    image_prompt: list[ImagePrompt] | None = None
 
     @classmethod
     def parse_scene_dict(cls, data: Any) -> Scene:
@@ -168,7 +140,6 @@ class SceneScript:
             raise TypeError("scene_number must be an integer")
 
         scene_content = parse_scene_content(data.get("scene_content"))
-        scene_image_prompt = cls.parse_img_prompt_list(data.get("image_prompt"))
 
         scene_characters = [
             str(name).strip() for name in characters if str(name).strip()
@@ -188,7 +159,6 @@ class SceneScript:
             "emotional_beat": str(data["emotional_beat"]).strip(),
             "character_change": str(data["character_change"]).strip(),
             "ends_on": str(data["ends_on"]).strip(),
-            "image_prompt": scene_image_prompt,
         }
         for name in (
             "scene_title",
@@ -260,11 +230,15 @@ class SceneScript:
         )
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        scene_dict: dict[str, Any] = dict(self.scene)
+        out: dict[str, Any] = {
             "script_id": str(self.script_id),
             "model": self.model,
-            "scene": dict(self.scene),
+            "scene": scene_dict,
         }
+        if self.image_prompt is not None:
+            out["image_prompt"] = self.image_prompt
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SceneScript:
@@ -278,10 +252,18 @@ class SceneScript:
         if scene_data is None:
             raise ValueError("missing scene")
         scene = cls.parse_scene_dict(scene_data)
+        image_prompt_raw = data.get("image_prompt")
+        if image_prompt_raw is None and isinstance(scene_data, dict):
+            image_prompt_raw = scene_data.get("image_prompt")
+        image_prompt = cls.parse_img_prompt_list(
+            image_prompt_raw,
+            scene_content=scene.get("scene_content") or [],
+        )
         return cls(
             script_id=UUID(str(script_id_raw)),
             model=model,
             scene=scene,
+            image_prompt=image_prompt,
         )
 
     @classmethod

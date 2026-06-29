@@ -14,10 +14,8 @@ from utils.schema import SceneScript, validate_scripts_for_video
 def _scene_script(image_prompt: object, *, scene_number: int = 0) -> SceneScript:
     return SceneScript(
         script_id=UUID("9f3b60f2-d1ea-4e39-9773-6e0614761995"),
-        scene={
-            "scene_number": scene_number,
-            "image_prompt": image_prompt,
-        },
+        scene={"scene_number": scene_number},
+        image_prompt=image_prompt,  # type: ignore[arg-type]
     )
 
 

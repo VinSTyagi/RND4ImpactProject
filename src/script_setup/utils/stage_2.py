@@ -117,7 +117,7 @@ def _format_prompt(
     idea: StoryIdea,
     enable_thinking: bool,
 ) -> str:
-    payload = idea_prompt_payload(idea.idea)
+    payload = idea_prompt_payload(idea)
     user_prompt = (
         f"Here is a story idea JSON object. Produce exactly one title string of approximately {num_words} words.\n"
         + json.dumps(payload, ensure_ascii=False)

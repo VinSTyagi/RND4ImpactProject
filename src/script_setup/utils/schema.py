@@ -42,21 +42,9 @@ _IDEA_FIELDS = (
 )
 
 
-class Idea(TypedDict):
-    genre: str
-    setting: str
-    premise: str
-    protagonist: str
-    antagonist: str
-    hook: str
-    tone: str
-    theme: str
-    model: str
-
-
-def idea_prompt_payload(idea: Idea) -> dict[str, str]:
+def idea_prompt_payload(story: StoryIdea) -> dict[str, str]:
     """Story fields only, for stage 2+ prompts."""
-    return {name: idea[name] for name in _IDEA_FIELDS}
+    return {name: getattr(story, name) for name in _IDEA_FIELDS}
 
 
 IMAGE_PROMPT_FIELDS = (
@@ -109,7 +97,6 @@ class Scene(TypedDict):
     emotional_beat: str
     character_change: str
     ends_on: str
-    image_prompt: list[ImagePrompt] | None
 
 
 def _serialize_scene_content(
@@ -133,8 +120,8 @@ def scene_payload(scene: Scene) -> dict[str, Any]:
 def cast_visual_context(idea: StoryIdea) -> dict[str, str]:
     """Story-bible visual anchors for stage 5 (describe cast without names)."""
     return {
-        "protagonist_description": idea.idea["protagonist"],
-        "antagonist_description": idea.idea["antagonist"],
+        "protagonist_description": idea.protagonist,
+        "antagonist_description": idea.antagonist,
     }
 
 
@@ -181,7 +168,14 @@ def iter_scene_dirs(story_path: Path) -> list[Path]:
 class StoryIdea:
     """Story bible written by stages 1–2 to ``<script_id>/idea.json``."""
 
-    idea: Idea
+    genre: str
+    setting: str
+    premise: str
+    protagonist: str
+    antagonist: str
+    hook: str
+    tone: str
+    theme: str
     script_id: UUID = field(default_factory=uuid4)
     model: str = ""
     title: str | None = None
@@ -191,8 +185,8 @@ class StoryIdea:
         return self.title
 
     @classmethod
-    def parse_idea_dict(cls, data: Any) -> Idea:
-        """Validate and normalize idea story fields from LLM output or JSON."""
+    def _idea_fields_from_dict(cls, data: Any) -> dict[str, str]:
+        """Validate and normalize story-bible fields from LLM output or JSON."""
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
         missing = [
@@ -202,31 +196,30 @@ class StoryIdea:
         ]
         if missing:
             raise ValueError(f"missing or empty fields: {', '.join(missing)}")
-        idea: Idea = {
-            "genre": str(data["genre"]).strip(),
-            "setting": str(data["setting"]).strip(),
-            "premise": str(data["premise"]).strip(),
-            "protagonist": str(data["protagonist"]).strip(),
-            "antagonist": str(data["antagonist"]).strip(),
-            "hook": str(data["hook"]).strip(),
-            "tone": str(data["tone"]).strip(),
-            "theme": str(data["theme"]).strip(),
-            "model": str(data.get("model") or "").strip(),
-        }
-        return idea
+        return {name: str(data[name]).strip() for name in _IDEA_FIELDS}
+
+    @classmethod
+    def from_idea_dict(cls, data: Any, *, model: str = "") -> StoryIdea:
+        """Build a StoryIdea from LLM idea output (stage 1)."""
+        return cls(**cls._idea_fields_from_dict(data), model=model)
+
+    @classmethod
+    def parse_idea_dict(cls, data: Any) -> StoryIdea:
+        """Backward-compatible alias for :meth:`from_idea_dict`."""
+        return cls.from_idea_dict(data)
 
     def prompt_payload(self) -> dict[str, str]:
         """Story fields plus title, for stage 3 prompts."""
         if not self.title:
             raise ValueError(f"story {self.script_id} missing title")
-        payload = idea_prompt_payload(self.idea)
+        payload = idea_prompt_payload(self)
         payload["title"] = self.title
         return payload
 
     def to_json(self) -> dict[str, Any]:
-        out: dict[str, Any] = {name: self.idea[name] for name in _IDEA_FIELDS}
+        out: dict[str, Any] = {name: getattr(self, name) for name in _IDEA_FIELDS}
         out["script_id"] = str(self.script_id)
-        out["model"] = self.model or self.idea.get("model") or ""
+        out["model"] = self.model
         if self.title:
             out["title"] = self.title
         return out
@@ -237,19 +230,19 @@ class StoryIdea:
             raise TypeError(f"expected dict, got {type(data).__name__}")
         nested = data.get("idea") or data.get("raw_idea")
         if isinstance(nested, dict):
-            idea = cls.parse_idea_dict(nested)
+            idea_fields = cls._idea_fields_from_dict(nested)
             script_id_raw = data.get("script_id") or nested.get("idea_id")
         else:
-            idea = cls.parse_idea_dict(data)
+            idea_fields = cls._idea_fields_from_dict(data)
             script_id_raw = data.get("script_id") or data.get("idea_id")
         if not script_id_raw:
             raise ValueError("missing script_id")
         title = data.get("title") or data.get("raw_title")
         if title is not None:
             title = str(title).strip() or None
-        model = str(data.get("model") or idea.get("model") or "").strip()
+        model = str(data.get("model") or "").strip()
         return cls(
-            idea=idea,
+            **idea_fields,
             script_id=UUID(str(script_id_raw)),
             model=model,
             title=title,
@@ -293,6 +286,7 @@ class SceneScript:
     script_id: UUID
     model: str
     scene: Scene
+    image_prompt: list[ImagePrompt] | None = None
 
     @classmethod
     def parse_scene_dict(cls, data: Any) -> Scene:
@@ -317,7 +311,6 @@ class SceneScript:
             raise TypeError("scene_number must be an integer")
 
         scene_content = parse_scene_content(data.get("scene_content"))
-        scene_image_prompt = cls.parse_img_prompt_list(data.get("image_prompt"))
 
         scene_characters = [
             str(name).strip() for name in characters if str(name).strip()
@@ -337,7 +330,6 @@ class SceneScript:
             "emotional_beat": str(data["emotional_beat"]).strip(),
             "character_change": str(data["character_change"]).strip(),
             "ends_on": str(data["ends_on"]).strip(),
-            "image_prompt": scene_image_prompt,
         }
         for name in (
             "scene_title",
@@ -441,31 +433,35 @@ class SceneScript:
         return prompts
 
     @classmethod
-    def attach_scene_image_prompts(
+    def attach_image_prompts(
         cls,
-        scene: Scene,
+        scene_script: SceneScript,
         prompts: list[ImagePrompt],
         *,
         min_prompts: int = 1,
         max_prompts: int = 5,
-    ) -> Scene:
+    ) -> SceneScript:
         count = len(prompts)
         if count < min_prompts or count > max_prompts:
             raise ValueError(
                 f"expected {min_prompts}-{max_prompts} image prompt(s) but received {count}"
             )
-        return {**scene, "image_prompt": prompts}
+        scene_script.image_prompt = prompts
+        return scene_script
 
     def to_json(self) -> dict[str, Any]:
         scene_dict: dict[str, Any] = dict(self.scene)
         scene_dict["scene_content"] = _serialize_scene_content(
             self.scene.get("scene_content") or []
         )
-        return {
+        out: dict[str, Any] = {
             "script_id": str(self.script_id),
             "model": self.model,
             "scene": scene_dict,
         }
+        if self.image_prompt is not None:
+            out["image_prompt"] = self.image_prompt
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SceneScript:
@@ -479,10 +475,18 @@ class SceneScript:
         if scene_data is None:
             raise ValueError("missing scene")
         scene = cls.parse_scene_dict(scene_data)
+        image_prompt_raw = data.get("image_prompt")
+        if image_prompt_raw is None and isinstance(scene_data, dict):
+            image_prompt_raw = scene_data.get("image_prompt")
+        image_prompt = cls.parse_img_prompt_list(
+            image_prompt_raw,
+            scene_content=scene.get("scene_content") or [],
+        )
         return cls(
             script_id=UUID(str(script_id_raw)),
             model=model,
             scene=scene,
+            image_prompt=image_prompt,
         )
 
     @classmethod

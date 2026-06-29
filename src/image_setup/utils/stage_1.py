@@ -27,7 +27,7 @@ def validate_scripts(scene_scripts: list[SceneScript]) -> None:
     errors: list[str] = []
     for scene_script in scene_scripts:
         scene = scene_script.scene
-        prompts = scene.get("image_prompt")
+        prompts = scene_script.image_prompt
         if not prompts:
             errors.append(
                 f"{scene_script.script_id}: scene {scene['scene_number']} missing image_prompt"
@@ -50,7 +50,7 @@ def iter_scene_prompts(
     scene_script: SceneScript,
 ) -> Iterator[tuple[SceneScript, Scene, int, ImagePrompt]]:
     for scene_script_item, scene in iter_scenes(scene_script):
-        prompts = scene.get("image_prompt") or []
+        prompts = scene_script_item.image_prompt or []
         for prompt_number, image_prompt in enumerate(prompts):
             yield scene_script_item, scene, prompt_number, image_prompt
 

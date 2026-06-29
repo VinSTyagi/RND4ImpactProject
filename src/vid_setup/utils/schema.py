@@ -201,6 +201,7 @@ class SceneScript:
     script_id: UUID
     model: str = ""
     scene: dict[str, Any] | None = None
+    image_prompt: list[dict[str, Any]] | dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SceneScript:
@@ -218,10 +219,14 @@ class SceneScript:
             raise ValueError("scene must be an object")
 
         model = str(data.get("model") or "").strip()
+        image_prompt = data.get("image_prompt")
+        if image_prompt is None:
+            image_prompt = scene_data.get("image_prompt")
         return cls(
             script_id=UUID(str(script_id_raw)),
             model=model,
             scene=scene_data,
+            image_prompt=image_prompt,
         )
 
     @classmethod
@@ -322,7 +327,9 @@ class SceneScript:
         if scene is None or scene.get("scene_number") != scene_number:
             return "", ""
 
-        image_prompt_data = scene.get("image_prompt")
+        image_prompt_data = self.image_prompt
+        if image_prompt_data is None:
+            image_prompt_data = scene.get("image_prompt")
         if image_prompt_data is None:
             return "", ""
 
@@ -368,7 +375,9 @@ def validate_scripts_for_video(
         for scene_script in sorted(scene_scripts, key=lambda item: item.scene_number()):
             scene = scene_script.scene or {}
             scene_number = scene_script.scene_number()
-            image_prompt_data = scene.get("image_prompt")
+            image_prompt_data = scene_script.image_prompt
+            if image_prompt_data is None:
+                image_prompt_data = scene.get("image_prompt")
             if isinstance(image_prompt_data, dict):
                 prompt_items = [image_prompt_data]
             elif isinstance(image_prompt_data, list):
@@ -708,8 +717,11 @@ def scene_paths(
     )
 
 
-def _prompt_count_for_scene(scene: dict[str, Any]) -> int:
-    image_prompt_data = scene.get("image_prompt")
+def _prompt_count_for_scene_script(scene_script: SceneScript) -> int:
+    scene = scene_script.scene or {}
+    image_prompt_data = scene_script.image_prompt
+    if image_prompt_data is None:
+        image_prompt_data = scene.get("image_prompt")
     if isinstance(image_prompt_data, dict):
         return 1
     if isinstance(image_prompt_data, list):
@@ -762,9 +774,8 @@ def scene_paths_for_script(
 
     results: list[ScenePaths] = []
     for scene_script in sorted(scene_scripts, key=lambda item: item.scene_number()):
-        scene = scene_script.scene or {}
         scene_number = scene_script.scene_number()
-        for prompt_number in range(_prompt_count_for_scene(scene)):
+        for prompt_number in range(_prompt_count_for_scene_script(scene_script)):
             paths = scene_paths(script_id, scene_number, prompt_number, io_cfg)
             if paths.image.is_file():
                 results.append(paths)

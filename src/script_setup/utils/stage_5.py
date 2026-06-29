@@ -182,8 +182,8 @@ def generate_prompts(
                 f"scene {scene['scene_number']}"
             )
 
-        scene_script.scene = SceneScript.attach_scene_image_prompts(
-            scene,
+        SceneScript.attach_image_prompts(
+            scene_script,
             prompts_by_scene,
             min_prompts=min_prompts,
             max_prompts=max_prompts,

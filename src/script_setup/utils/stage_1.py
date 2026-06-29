@@ -7,7 +7,7 @@ import time
 from prompts.prompt_reader import load_prompt_md
 from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import completion_text, parse_json_array, strip_reasoning
-from utils.schema import Idea, IdeaConfig, StoryIdea, resolve_path
+from utils.schema import IdeaConfig, StoryIdea, resolve_path
 
 
 def run_stage(
@@ -93,16 +93,14 @@ def generate_ideas(
         label="stage 1",
     )
 
-    parsed_ideas: list[Idea] = []
+    stories: list[StoryIdea] = []
     for index, request_output in enumerate(raw_outputs, start=1):
         answer_text = strip_reasoning(completion_text([request_output]))
         logger.info("Model answer (batch %s/%s):\n%s", index, len(raw_outputs), answer_text)
-        parsed_ideas.extend(parse_ideas_from_text(answer_text))
+        stories.extend(parse_ideas_from_text(answer_text))
 
-    model_name = model.llm_engine.model_config.model
-    stories = [StoryIdea(idea=idea, model=model_name) for idea in parsed_ideas]
     for story in stories:
-        story.idea["model"] = model_name
+        story.model = model_name
     if len(stories) != num_ideas:
         logger.warning("Expected %s ideas but parsed %s", num_ideas, len(stories))
     return stories
@@ -126,8 +124,8 @@ def _format_idea_prompt(
     )
 
 
-def parse_ideas_from_text(text: str) -> list[Idea]:
-    """Parse LLM text into validated idea dicts."""
+def parse_ideas_from_text(text: str) -> list[StoryIdea]:
+    """Parse LLM text into validated StoryIdea objects."""
     try:
         payload = parse_json_array(text)
     except json.JSONDecodeError as exc:
@@ -143,10 +141,10 @@ def parse_ideas_from_text(text: str) -> list[Idea]:
     if not items:
         raise ValueError("JSON array contained no ideas")
 
-    ideas: list[Idea] = []
+    ideas: list[StoryIdea] = []
     for index, item in enumerate(items):
         try:
-            ideas.append(StoryIdea.parse_idea_dict(item))
+            ideas.append(StoryIdea.from_idea_dict(item))
         except (TypeError, ValueError) as exc:
             raise ValueError(f"idea at index {index}: {exc}") from exc
     return ideas
