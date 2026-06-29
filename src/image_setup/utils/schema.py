@@ -14,6 +14,7 @@ from utils.image_prompt import (
     coerce_prompt_tags,
     join_prompt_tags,
     normalize_image_prompt_fields,
+    normalize_lines_used,
     truncate_tags_to_clip,
 )
 
@@ -96,6 +97,7 @@ class ImagePrompt(TypedDict):
     aspect_ratio: str
     cfg_scale: str
     reasoning: str
+    lines_used: list[list[str]]
 
 
 class Scene(TypedDict):
@@ -202,14 +204,31 @@ class SceneScript:
         return scene
 
     @classmethod
-    def parse_img_prompt_dict(cls, data: Any) -> ImagePrompt:
+    def parse_img_prompt_dict(
+        cls,
+        data: Any,
+        *,
+        scene_content: list[tuple[str, str]] | None = None,
+        require_lines_used: bool = False,
+    ) -> ImagePrompt:
         """Validate and normalize an image prompt dict from LLM output or JSON."""
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
 
         missing = [name for name in IMAGE_PROMPT_FIELDS if name not in data]
+        if require_lines_used and "lines_used" not in data:
+            missing.append("lines_used")
         if missing:
             raise ValueError(f"missing fields: {', '.join(missing)}")
+
+        if "lines_used" in data or require_lines_used:
+            lines_used = normalize_lines_used(
+                data.get("lines_used"),
+                scene_content=scene_content,
+                allow_empty=not require_lines_used,
+            )
+        else:
+            lines_used = []
 
         normalized = normalize_image_prompt_fields(
             positive_prompt=coerce_prompt_tags(
@@ -222,6 +241,7 @@ class SceneScript:
             aspect_ratio=data["aspect_ratio"],
             cfg_scale=data["cfg_scale"],
             reasoning=data["reasoning"],
+            lines_used=lines_used,
         )
         return normalized  # type: ignore[return-value]
 

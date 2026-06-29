@@ -225,6 +225,50 @@ def normalize_reasoning(value: Any) -> str:
     return reasoning
 
 
+def coerce_lines_used(value: Any) -> list[list[str]]:
+    if not isinstance(value, list):
+        raise ValueError("lines_used must be a non-empty array")
+    if not value:
+        raise ValueError("lines_used must not be empty")
+    pairs: list[list[str]] = []
+    for index, item in enumerate(value):
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            character = str(item[0]).strip()
+            line = str(item[1])
+            if not character:
+                raise ValueError(
+                    f"lines_used[{index}]: character must be a non-empty string"
+                )
+            pairs.append([character, line])
+            continue
+        raise ValueError(
+            f"lines_used[{index}] must be a 2-element [character, line] array"
+        )
+    return pairs
+
+
+def normalize_lines_used(
+    value: Any,
+    *,
+    scene_content: list[tuple[str, str]] | None = None,
+    allow_empty: bool = False,
+) -> list[list[str]]:
+    if value is None:
+        if allow_empty:
+            return []
+        raise ValueError("lines_used must be a non-empty array")
+    pairs = coerce_lines_used(value)
+    if scene_content is not None:
+        scene_pairs = {(character, text) for character, text in scene_content}
+        for index, pair in enumerate(pairs):
+            key = (pair[0], pair[1])
+            if key not in scene_pairs:
+                raise ValueError(
+                    f"lines_used[{index}] {pair!r} does not match any scene_content pair"
+                )
+    return pairs
+
+
 def normalize_image_prompt_fields(
     *,
     positive_prompt: list[str],
@@ -233,6 +277,7 @@ def normalize_image_prompt_fields(
     aspect_ratio: Any,
     cfg_scale: Any,
     reasoning: Any,
+    lines_used: list[list[str]] | None = None,
 ) -> dict[str, Any]:
     """Apply prompt constraints when reading ImagePrompt fields from script.json."""
     return {
@@ -242,4 +287,5 @@ def normalize_image_prompt_fields(
         "aspect_ratio": normalize_aspect_ratio(aspect_ratio),
         "cfg_scale": normalize_cfg_scale(cfg_scale),
         "reasoning": normalize_reasoning(reasoning),
+        "lines_used": lines_used or [],
     }

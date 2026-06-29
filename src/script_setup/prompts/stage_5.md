@@ -7,6 +7,8 @@ Also provided: cast_descriptions with protagonist_description and antagonist_des
 
 scene_content is an array of [character, line] pairs representing dialogue, narration, inner thought, or silence in the scene. Character names in scene_content are for context only — never put names in positive_prompt.
 
+Each pair in scene_content is indexed from 0 (first pair = index 0). Use these pairs to choose what to illustrate and to populate "lines_used".
+
 --CHARACTER DESCRIPTION RULES
 - **Never use proper names** (e.g. "Lira", "Kaela") in positive_prompt. SD models do not know who they are.
 - Translate each on-screen character into a **short visual description**: age cue + hair/build/skin/scars/clothing/role (e.g. "silver-braided engineer in grease-stained coveralls", "young woman in cryo pod", "malfunctioning repair drone").
@@ -24,8 +26,22 @@ Return a JSON array of {min_prompts} to {max_prompts} image-prompt objects (incl
 - "aspect_ratio": "16:9" (wide/action) | "9:16" (portrait) | "1:1" (close-up)
 - "cfg_scale": integer 5–12 (7 = default)
 - "reasoning": one short sentence on the key visual choice
+- "lines_used": **required.** A non-empty array of the exact [character, line] pairs from `scene_content` that this image prompt illustrates. Copy each pair verbatim (same character string and line string as in the input). Rules:
+  - Include every pair that directly motivates the frame (dialogue spoken, reaction shown, narration depicted, silence implied).
+  - One prompt may cite one or more pairs; a single pair may appear in multiple prompts only if each prompt shows a clearly different visual angle of that beat.
+  - Do not invent pairs; every entry must match an input pair exactly.
+  - Environment-only or prop-focused frames: cite the narration or silence pair(s) that describe what is visible.
 
-Example:
+Example (input scene_content abbreviated):
+"scene_content": [
+  ["Lira", "These papers need to look worn."],
+  ["Guard", "Move along."],
+  ["Narration", "Dawn light cuts through fogged pharmacy windows."],
+  ["Lira", "(inner thought) He can't know."],
+  ["Silence", ""]
+]
+
+Example output:
 [
   {
     "positive_prompt": "auburn-haired woman passing forged papers at cracked counter, wary posture, guard blurred behind, flooded pharmacy shelves, dawn sidelight, cold grey fog, cinematic medium shot, muted blues",
@@ -33,7 +49,12 @@ Example:
     "style_preset": "cinematic",
     "aspect_ratio": "16:9",
     "cfg_scale": 8,
-    "reasoning": "Sidelight and muted tones sell the tense covert exchange."
+    "reasoning": "Sidelight and muted tones sell the tense covert exchange.",
+    "lines_used": [
+      ["Lira", "These papers need to look worn."],
+      ["Guard", "Move along."],
+      ["Narration", "Dawn light cuts through fogged pharmacy windows."]
+    ]
   },
   {
     "positive_prompt": "close-up of woman's tense jaw, eyes downcast, rain-streaked window reflection, shallow depth of field, cold blue tones",
@@ -41,13 +62,17 @@ Example:
     "style_preset": "cinematic",
     "aspect_ratio": "1:1",
     "cfg_scale": 7,
-    "reasoning": "Inner-thought beat shown through tight facial detail."
+    "reasoning": "Inner-thought beat shown through tight facial detail.",
+    "lines_used": [
+      ["Lira", "(inner thought) He can't know."]
+    ]
   }
 ]
 
 Constraints:
 - Return **exactly {min_prompts}–{max_prompts} objects** (inclusive; array length must stay within this range)
+- Every object **must** include `"lines_used"` with at least one valid pair from `scene_content`
 - CLIP truncates at 77 tokens — stay under 60; cut adjectives before submitting.
 - Show emotion visually (tension → rigid posture, clenched jaw).
 - Lead with the most important visual element.
-- Use scene_content to choose who is visible and what moment to illustrate.
+- Use scene_content to choose who is visible and what moment to illustrate; `lines_used` must document which pairs drove each prompt.

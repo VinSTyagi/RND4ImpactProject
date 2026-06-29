@@ -9,7 +9,11 @@ from uuid import UUID, uuid4
 
 import yaml
 
-from utils.image_prompt import coerce_prompt_tags, normalize_image_prompt_fields
+from utils.image_prompt import (
+    coerce_prompt_tags,
+    normalize_image_prompt_fields,
+    normalize_lines_used,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC_ROOT = Path(__file__).resolve().parents[2]
@@ -90,6 +94,7 @@ class ImagePrompt(TypedDict):
     aspect_ratio: str
     cfg_scale: str
     reasoning: str
+    lines_used: list[list[str]]
 
 
 class Scene(TypedDict):
@@ -348,14 +353,31 @@ class SceneScript:
         return scene
 
     @classmethod
-    def parse_img_prompt_dict(cls, data: Any) -> ImagePrompt:
+    def parse_img_prompt_dict(
+        cls,
+        data: Any,
+        *,
+        scene_content: list[tuple[str, str]] | None = None,
+        require_lines_used: bool = False,
+    ) -> ImagePrompt:
         """Validate and normalize an image prompt dict from LLM output or JSON."""
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
 
         missing = [name for name in IMAGE_PROMPT_FIELDS if name not in data]
+        if require_lines_used and "lines_used" not in data:
+            missing.append("lines_used")
         if missing:
             raise ValueError(f"missing fields: {', '.join(missing)}")
+
+        if "lines_used" in data or require_lines_used:
+            lines_used = normalize_lines_used(
+                data.get("lines_used"),
+                scene_content=scene_content,
+                allow_empty=not require_lines_used,
+            )
+        else:
+            lines_used = []
 
         normalized = normalize_image_prompt_fields(
             positive_prompt=coerce_prompt_tags(
@@ -368,6 +390,7 @@ class SceneScript:
             aspect_ratio=data["aspect_ratio"],
             cfg_scale=data["cfg_scale"],
             reasoning=data["reasoning"],
+            lines_used=lines_used,
         )
         return normalized  # type: ignore[return-value]
 
@@ -378,16 +401,24 @@ class SceneScript:
         *,
         min_prompts: int = 0,
         max_prompts: int = 5,
+        scene_content: list[tuple[str, str]] | None = None,
+        require_lines_used: bool = False,
     ) -> list[ImagePrompt] | None:
         """Validate null, a single prompt object, or a list of prompt objects."""
         if data is None:
             return None
+        parse_kwargs = {
+            "scene_content": scene_content,
+            "require_lines_used": require_lines_used,
+        }
         if isinstance(data, dict):
-            prompts = [cls.parse_img_prompt_dict(data)]
+            prompts = [cls.parse_img_prompt_dict(data, **parse_kwargs)]
         elif isinstance(data, list):
             if not data:
                 raise ValueError("image_prompt must be null or a non-empty array")
-            prompts = [cls.parse_img_prompt_dict(item) for item in data]
+            prompts = [
+                cls.parse_img_prompt_dict(item, **parse_kwargs) for item in data
+            ]
         else:
             raise TypeError(
                 f"image_prompt must be an object, array, or null, got {type(data).__name__}"

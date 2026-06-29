@@ -157,6 +157,7 @@ def generate_prompts(
                     answer_text,
                     min_prompts=min_prompts,
                     max_prompts=max_prompts,
+                    scene_content=scene.get("scene_content") or [],
                 )
                 break
             except ValueError as exc:
@@ -210,6 +211,7 @@ def parse_prompts_from_text(
     *,
     min_prompts: int,
     max_prompts: int,
+    scene_content: list[tuple[str, str]] | None = None,
 ) -> list[ImagePrompt]:
     try:
         payload = parse_json_array(text)
@@ -222,7 +224,11 @@ def parse_prompts_from_text(
     prompts: list[ImagePrompt] = []
     for i, item in enumerate(payload):
         try:
-            image_prompt = SceneScript.parse_img_prompt_dict(item)
+            image_prompt = SceneScript.parse_img_prompt_dict(
+                item,
+                scene_content=scene_content,
+                require_lines_used=True,
+            )
         except (TypeError, ValueError) as exc:
             raise ValueError(f"image prompt at index {i}: {exc}") from exc
 
