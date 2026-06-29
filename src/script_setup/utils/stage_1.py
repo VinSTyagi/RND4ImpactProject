@@ -78,6 +78,7 @@ def generate_ideas(
     if not sys_prompt:
         raise FileNotFoundError(f"Prompt file not found or empty: {prompt_path}")
 
+    model_name = model.llm_engine.model_config.model
     prompts = [
         _format_idea_prompt(
             tokenizer, sys_prompt, _idea_user_prompt(count), enable_thinking

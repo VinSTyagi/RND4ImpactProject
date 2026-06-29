@@ -8,18 +8,18 @@ from json import JSONDecodeError
 from prompts.prompt_reader import load_prompt_md
 from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import (
+    format_system_prompt,
     parse_json_array,
     request_output_text,
     strip_reasoning,
 )
 from utils.schema import (
-    ImagePrompt,
     ImagePromptConfig,
     SceneScript,
     StoryIdea,
     cast_visual_context,
     resolve_path,
-    scene_payload,
+    scene_image_prompt_payload,
 )
 
 
@@ -98,10 +98,10 @@ def generate_prompts(
         raise ValueError(
             f"System prompt is empty or file path for the prompt is invalid: {config.prompt_path}"
         )
-    system_prompt = _format_system_prompt(
+    system_prompt = format_system_prompt(
         system_prompt_template,
-        min_prompts=config.min_prompts,
-        max_prompts=config.max_prompts,
+        min_prompts=str(config.min_prompts),
+        max_prompts=str(config.max_prompts),
     )
 
     model_name = model.llm_engine.model_config.model
@@ -116,6 +116,7 @@ def generate_prompts(
                 "(run stages 1–2 first)"
             )
         scene = scene_script.scene
+        beat_count = len(scene_script.scene_content)
         logger.info(
             "Story %s scene %s — image prompt generation (batch_size=%s)",
             scene_script.script_id,
@@ -126,14 +127,14 @@ def generate_prompts(
             tokenizer,
             system_prompt,
             idea,
-            [scene],
+            scene_script,
             min_prompts=min_prompts,
             max_prompts=max_prompts,
             enable_thinking=enable_thinking,
         )
 
         max_attempts = 2
-        prompts_by_scene: list[ImagePrompt] | None = None
+        prompts_by_scene = None
 
         for attempt in range(1, max_attempts + 1):
             generate_start = time.perf_counter()
@@ -157,7 +158,7 @@ def generate_prompts(
                     answer_text,
                     min_prompts=min_prompts,
                     max_prompts=max_prompts,
-                    scene_content=scene.get("scene_content") or [],
+                    beat_count=beat_count,
                 )
                 break
             except ValueError as exc:
@@ -182,28 +183,10 @@ def generate_prompts(
                 f"scene {scene['scene_number']}"
             )
 
-        SceneScript.attach_image_prompts(
-            scene_script,
-            prompts_by_scene,
-            min_prompts=min_prompts,
-            max_prompts=max_prompts,
-        )
+        scene_script.image_prompt = prompts_by_scene
         scene_script.model = model_name
 
     return scene_scripts
-
-
-def _format_system_prompt(
-    template: str,
-    *,
-    min_prompts: int,
-    max_prompts: int,
-) -> str:
-    return (
-        template.replace("{min_prompts}", str(min_prompts)).replace(
-            "{max_prompts}", str(max_prompts)
-        )
-    )
 
 
 def parse_prompts_from_text(
@@ -211,34 +194,22 @@ def parse_prompts_from_text(
     *,
     min_prompts: int,
     max_prompts: int,
-    scene_content: list[tuple[str, str]] | None = None,
-) -> list[ImagePrompt]:
+    beat_count: int,
+):
     try:
         payload = parse_json_array(text)
     except JSONDecodeError as exc:
         raise ValueError(f"invalid JSON in model output: {exc}") from exc
 
-    if not isinstance(payload, list):
+    prompts = SceneScript.parse_img_prompt_list(
+        payload,
+        min_prompts=min_prompts,
+        max_prompts=max_prompts,
+        beat_count=beat_count,
+        require_lines_used=True,
+    )
+    if prompts is None:
         raise ValueError("expected a JSON array of image prompt objects")
-
-    prompts: list[ImagePrompt] = []
-    for i, item in enumerate(payload):
-        try:
-            image_prompt = SceneScript.parse_img_prompt_dict(
-                item,
-                scene_content=scene_content,
-                require_lines_used=True,
-            )
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"image prompt at index {i}: {exc}") from exc
-
-        prompts.append(image_prompt)
-
-    if len(prompts) < min_prompts or len(prompts) > max_prompts:
-        raise ValueError(
-            f"expected {min_prompts}-{max_prompts} image prompt(s) but parsed {len(prompts)}"
-        )
-
     return prompts
 
 
@@ -246,29 +217,29 @@ def format_user_prompts(
     tokenizer,
     system_prompt: str,
     idea: StoryIdea,
-    scenes: list,
+    scene_script: SceneScript,
     *,
     min_prompts: int,
     max_prompts: int,
     enable_thinking: bool = False,
 ) -> list[str]:
     cast_descriptions = cast_visual_context(idea)
-    scene_prompts = [
-        [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"Here is a scene JSON object. Produce a JSON array with no fewer than "
-                    f"{min_prompts} and no more than {max_prompts} Stable Diffusion XL "
-                    "prompt objects (inclusive range).\n"
-                    f"{json.dumps({'cast_descriptions': cast_descriptions, 'scene': scene_payload(scene)}, ensure_ascii=False)}"
-                ),
-            },
-        ]
-        for scene in scenes
+    scene_payload = scene_image_prompt_payload(
+        scene_script.scene,
+        scene_script.scene_content,
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                f"Here is a scene JSON object. Produce a JSON array with no fewer than "
+                f"{min_prompts} and no more than {max_prompts} Stable Diffusion XL "
+                "prompt objects (inclusive range).\n"
+                f"{json.dumps({'cast_descriptions': cast_descriptions, 'scene': scene_payload}, ensure_ascii=False)}"
+            ),
+        },
     ]
-
     return [
         tokenizer.apply_chat_template(
             messages,
@@ -276,5 +247,4 @@ def format_user_prompts(
             add_generation_prompt=True,
             enable_thinking=enable_thinking,
         )
-        for messages in scene_prompts
     ]

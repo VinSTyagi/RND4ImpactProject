@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, TypedDict
@@ -10,9 +11,9 @@ from uuid import UUID, uuid4
 import yaml
 
 from utils.image_prompt import (
+    coerce_line_indices,
     coerce_prompt_tags,
     normalize_image_prompt_fields,
-    normalize_lines_used,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -75,6 +76,45 @@ _VALID_ACTS = frozenset(
 )
 
 
+def coerce_int_field(value: Any, field_name: str) -> int:
+    """Coerce LLM JSON scalars into integers for schema fields."""
+    if isinstance(value, bool):
+        raise TypeError(f"{field_name} must be an integer")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit() or (stripped.startswith("-") and stripped[1:].isdigit()):
+            return int(stripped)
+    raise TypeError(f"{field_name} must be an integer")
+
+
+def normalize_act(value: Any) -> str:
+    """Normalize act labels from LLM output onto the schema enum."""
+    act = re.sub(r"[\s\-]+", "_", str(value).strip().lower())
+    if act not in _VALID_ACTS:
+        valid = ", ".join(sorted(_VALID_ACTS))
+        raise ValueError(f"invalid act: {value!r}; expected one of: {valid}")
+    return act
+
+
+def coerce_character_list(value: Any) -> list[str]:
+    """Normalize scene character lists from LLM output."""
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        raise ValueError("characters must be a non-empty array")
+
+    characters = [str(name).strip() for name in items if str(name).strip()]
+    if not characters:
+        raise ValueError("characters must contain at least one name")
+    return characters
+
+
 class ImagePrompt(TypedDict):
     positive_prompt: list[str]
     negative_prompt: list[str]
@@ -82,13 +122,12 @@ class ImagePrompt(TypedDict):
     aspect_ratio: str
     cfg_scale: str
     reasoning: str
-    lines_used: list[list[str]]
+    lines_used: list[int]
 
 
 class Scene(TypedDict):
     scene_number: int
     scene_title: str
-    scene_content: list[tuple[str, str]]
     act: str
     setting: str
     characters: list[str]
@@ -110,10 +149,13 @@ def scene_outline_payload(scene: Scene) -> dict[str, Any]:
     return {name: scene[name] for name in _SCENE_FIELDS}
 
 
-def scene_payload(scene: Scene) -> dict[str, Any]:
+def scene_image_prompt_payload(
+    scene: Scene,
+    scene_content: list[tuple[str, str]],
+) -> dict[str, Any]:
     """Outline plus scene_content, for stage 5 image-prompt prompts."""
     payload = scene_outline_payload(scene)
-    payload["scene_content"] = _serialize_scene_content(scene.get("scene_content") or [])
+    payload["scene_content"] = _serialize_scene_content(scene_content)
     return payload
 
 
@@ -203,11 +245,6 @@ class StoryIdea:
         """Build a StoryIdea from LLM idea output (stage 1)."""
         return cls(**cls._idea_fields_from_dict(data), model=model)
 
-    @classmethod
-    def parse_idea_dict(cls, data: Any) -> StoryIdea:
-        """Backward-compatible alias for :meth:`from_idea_dict`."""
-        return cls.from_idea_dict(data)
-
     def prompt_payload(self) -> dict[str, str]:
         """Story fields plus title, for stage 3 prompts."""
         if not self.title:
@@ -286,11 +323,12 @@ class SceneScript:
     script_id: UUID
     model: str
     scene: Scene
+    scene_content: list[tuple[str, str]] = field(default_factory=list)
     image_prompt: list[ImagePrompt] | None = None
 
     @classmethod
     def parse_scene_dict(cls, data: Any) -> Scene:
-        """Validate and normalize a scene dict from LLM output or JSON."""
+        """Validate and normalize a scene outline dict from LLM output or JSON."""
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
 
@@ -298,32 +336,15 @@ class SceneScript:
         if missing:
             raise ValueError(f"missing fields: {', '.join(missing)}")
 
-        act = str(data["act"]).strip()
-        if act not in _VALID_ACTS:
-            raise ValueError(f"invalid act: {act}")
-
-        characters = data["characters"]
-        if not isinstance(characters, list) or not characters:
-            raise ValueError("characters must be a non-empty array")
-
-        scene_number = data["scene_number"]
-        if not isinstance(scene_number, int):
-            raise TypeError("scene_number must be an integer")
-
-        scene_content = parse_scene_content(data.get("scene_content"))
-
-        scene_characters = [
-            str(name).strip() for name in characters if str(name).strip()
-        ]
-        if not scene_characters:
-            raise ValueError("characters must contain at least one name")
+        act = normalize_act(data["act"])
+        scene_characters = coerce_character_list(data["characters"])
+        scene_number = coerce_int_field(data["scene_number"], "scene_number")
 
         scene: Scene = {
             "scene_number": scene_number,
             "act": act,
             "characters": scene_characters,
             "scene_title": str(data["scene_title"]).strip(),
-            "scene_content": scene_content,
             "setting": str(data["setting"]).strip(),
             "summary": str(data["summary"]).strip(),
             "conflict": str(data["conflict"]).strip(),
@@ -349,7 +370,7 @@ class SceneScript:
         cls,
         data: Any,
         *,
-        scene_content: list[tuple[str, str]] | None = None,
+        beat_count: int = 0,
         require_lines_used: bool = False,
     ) -> ImagePrompt:
         """Validate and normalize an image prompt dict from LLM output or JSON."""
@@ -363,9 +384,9 @@ class SceneScript:
             raise ValueError(f"missing fields: {', '.join(missing)}")
 
         if "lines_used" in data or require_lines_used:
-            lines_used = normalize_lines_used(
+            lines_used = coerce_line_indices(
                 data.get("lines_used"),
-                scene_content=scene_content,
+                beat_count=beat_count,
                 allow_empty=not require_lines_used,
             )
         else:
@@ -393,14 +414,14 @@ class SceneScript:
         *,
         min_prompts: int = 0,
         max_prompts: int = 5,
-        scene_content: list[tuple[str, str]] | None = None,
+        beat_count: int = 0,
         require_lines_used: bool = False,
     ) -> list[ImagePrompt] | None:
         """Validate null, a single prompt object, or a list of prompt objects."""
         if data is None:
             return None
         parse_kwargs = {
-            "scene_content": scene_content,
+            "beat_count": beat_count,
             "require_lines_used": require_lines_used,
         }
         if isinstance(data, dict):
@@ -432,32 +453,12 @@ class SceneScript:
             )
         return prompts
 
-    @classmethod
-    def attach_image_prompts(
-        cls,
-        scene_script: SceneScript,
-        prompts: list[ImagePrompt],
-        *,
-        min_prompts: int = 1,
-        max_prompts: int = 5,
-    ) -> SceneScript:
-        count = len(prompts)
-        if count < min_prompts or count > max_prompts:
-            raise ValueError(
-                f"expected {min_prompts}-{max_prompts} image prompt(s) but received {count}"
-            )
-        scene_script.image_prompt = prompts
-        return scene_script
-
     def to_json(self) -> dict[str, Any]:
-        scene_dict: dict[str, Any] = dict(self.scene)
-        scene_dict["scene_content"] = _serialize_scene_content(
-            self.scene.get("scene_content") or []
-        )
         out: dict[str, Any] = {
             "script_id": str(self.script_id),
             "model": self.model,
-            "scene": scene_dict,
+            "scene": dict(self.scene),
+            "scene_content": _serialize_scene_content(self.scene_content),
         }
         if self.image_prompt is not None:
             out["image_prompt"] = self.image_prompt
@@ -475,17 +476,19 @@ class SceneScript:
         if scene_data is None:
             raise ValueError("missing scene")
         scene = cls.parse_scene_dict(scene_data)
+        scene_content = parse_scene_content(data.get("scene_content"))
         image_prompt_raw = data.get("image_prompt")
         if image_prompt_raw is None and isinstance(scene_data, dict):
             image_prompt_raw = scene_data.get("image_prompt")
         image_prompt = cls.parse_img_prompt_list(
             image_prompt_raw,
-            scene_content=scene.get("scene_content") or [],
+            beat_count=len(scene_content),
         )
         return cls(
             script_id=UUID(str(script_id_raw)),
             model=model,
             scene=scene,
+            scene_content=scene_content,
             image_prompt=image_prompt,
         )
 
@@ -536,11 +539,6 @@ class SceneScript:
             "w", encoding="utf-8"
         ) as fh:
             json.dump(self.to_json(), fh, indent=2)
-
-
-# Backward-compatible alias for stages migrating off the monolithic Script type.
-Script = SceneScript
-
 
 
 def clamp_scene_content_beats(
@@ -631,6 +629,7 @@ def parse_scene_content(
 class VLLMModelConfig:
     model_path: str = "Qwen/Qwen3-4B-AWQ"
     quantization: str = "awq"
+    dtype: str = "auto"
     max_tokens: int = 1536
     temperature: float = 0.25
     top_p: float = 0.9

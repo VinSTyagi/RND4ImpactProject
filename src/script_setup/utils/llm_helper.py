@@ -343,3 +343,11 @@ def parse_json_array(text: str) -> Any:
     if last_exc is not None:
         raise last_exc
     raise ValueError("no JSON array found in model output")
+
+
+def format_system_prompt(template: str, **replacements: str) -> str:
+    """Substitute ``{key}`` placeholders in a prompt template."""
+    result = template
+    for key, value in replacements.items():
+        result = result.replace(f"{{{key}}}", value)
+    return result

@@ -11,10 +11,10 @@ from PIL import Image
 import yaml
 
 from utils.image_prompt import (
+    coerce_line_indices,
     coerce_prompt_tags,
     join_prompt_tags,
     normalize_image_prompt_fields,
-    normalize_lines_used,
     truncate_tags_to_clip,
 )
 
@@ -69,13 +69,12 @@ class ImagePrompt(TypedDict):
     aspect_ratio: str
     cfg_scale: str
     reasoning: str
-    lines_used: list[list[str]]
+    lines_used: list[int]
 
 
 class Scene(TypedDict):
     scene_number: int
     scene_title: str
-    scene_content: list[tuple[str, str]]
     act: str
     setting: str
     characters: list[str]
@@ -115,6 +114,7 @@ class SceneScript:
     script_id: UUID
     model: str
     scene: Scene
+    scene_content: list[tuple[str, str]] = field(default_factory=list)
     image_prompt: list[ImagePrompt] | None = None
 
     @classmethod
@@ -139,8 +139,6 @@ class SceneScript:
         if not isinstance(scene_number, int):
             raise TypeError("scene_number must be an integer")
 
-        scene_content = parse_scene_content(data.get("scene_content"))
-
         scene_characters = [
             str(name).strip() for name in characters if str(name).strip()
         ]
@@ -152,7 +150,6 @@ class SceneScript:
             "act": act,
             "characters": scene_characters,
             "scene_title": str(data["scene_title"]).strip(),
-            "scene_content": scene_content,
             "setting": str(data["setting"]).strip(),
             "summary": str(data["summary"]).strip(),
             "conflict": str(data["conflict"]).strip(),
@@ -178,7 +175,7 @@ class SceneScript:
         cls,
         data: Any,
         *,
-        scene_content: list[tuple[str, str]] | None = None,
+        beat_count: int = 0,
         require_lines_used: bool = False,
     ) -> ImagePrompt:
         """Validate and normalize an image prompt dict from LLM output or JSON."""
@@ -192,9 +189,9 @@ class SceneScript:
             raise ValueError(f"missing fields: {', '.join(missing)}")
 
         if "lines_used" in data or require_lines_used:
-            lines_used = normalize_lines_used(
+            lines_used = coerce_line_indices(
                 data.get("lines_used"),
-                scene_content=scene_content,
+                beat_count=beat_count,
                 allow_empty=not require_lines_used,
             )
         else:
@@ -216,25 +213,31 @@ class SceneScript:
         return normalized  # type: ignore[return-value]
 
     @classmethod
-    def parse_img_prompt_list(cls, data: Any) -> list[ImagePrompt] | None:
+    def parse_img_prompt_list(
+        cls,
+        data: Any,
+        *,
+        beat_count: int = 0,
+    ) -> list[ImagePrompt] | None:
         if data is None:
             return None
+        parse_kwargs = {"beat_count": beat_count}
         if isinstance(data, dict):
-            return [cls.parse_img_prompt_dict(data)]
+            return [cls.parse_img_prompt_dict(data, **parse_kwargs)]
         if isinstance(data, list):
             if not data:
                 raise ValueError("image_prompt must be null or a non-empty array")
-            return [cls.parse_img_prompt_dict(item) for item in data]
+            return [cls.parse_img_prompt_dict(item, **parse_kwargs) for item in data]
         raise TypeError(
             f"image_prompt must be an object, array, or null, got {type(data).__name__}"
         )
 
     def to_json(self) -> dict[str, Any]:
-        scene_dict: dict[str, Any] = dict(self.scene)
         out: dict[str, Any] = {
             "script_id": str(self.script_id),
             "model": self.model,
-            "scene": scene_dict,
+            "scene": dict(self.scene),
+            "scene_content": [[character, text] for character, text in self.scene_content],
         }
         if self.image_prompt is not None:
             out["image_prompt"] = self.image_prompt
@@ -252,17 +255,19 @@ class SceneScript:
         if scene_data is None:
             raise ValueError("missing scene")
         scene = cls.parse_scene_dict(scene_data)
+        scene_content = parse_scene_content(data.get("scene_content"))
         image_prompt_raw = data.get("image_prompt")
         if image_prompt_raw is None and isinstance(scene_data, dict):
             image_prompt_raw = scene_data.get("image_prompt")
         image_prompt = cls.parse_img_prompt_list(
             image_prompt_raw,
-            scene_content=scene.get("scene_content") or [],
+            beat_count=len(scene_content),
         )
         return cls(
             script_id=UUID(str(script_id_raw)),
             model=model,
             scene=scene,
+            scene_content=scene_content,
             image_prompt=image_prompt,
         )
 
@@ -301,9 +306,6 @@ class SceneScript:
             key=lambda item: (str(item.script_id), item.scene["scene_number"])
         )
         return scripts
-
-
-Script = SceneScript
 
 
 _ASPECT_SIZES_SDXL: dict[str, tuple[int, int]] = {

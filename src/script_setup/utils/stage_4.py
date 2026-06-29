@@ -9,6 +9,7 @@ from json import JSONDecodeError
 from prompts.prompt_reader import load_prompt_md
 from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import (
+    format_system_prompt,
     parse_json_array,
     parse_json_object,
     request_output_text,
@@ -92,10 +93,10 @@ def generate_scene_content(
         raise ValueError(
             f"System prompt is empty or file path for the prompt is invalid: {config.prompt_path}"
         )
-    system_prompt = _format_system_prompt(
+    system_prompt = format_system_prompt(
         system_prompt_template,
-        min_beats=config.min_beats,
-        max_beats=config.max_beats,
+        min_beats=str(config.min_beats),
+        max_beats=str(config.max_beats),
     )
 
     model_name = model.llm_engine.model_config.model
@@ -184,7 +185,7 @@ def generate_scene_content(
         for scene_script, content in zip(scene_scripts, scene_contents):
             if content is None:
                 continue
-            scene_script.scene = {**scene_script.scene, "scene_content": content}
+            scene_script.scene_content = content
             scene_script.model = model_name
             updated_scripts.append(scene_script)
 
@@ -225,32 +226,6 @@ def _extract_scene_content_array_text(text: str) -> str | None:
             if depth == 0:
                 return cleaned[start : index + 1]
     return None
-
-
-def _format_system_prompt(
-    template: str,
-    *,
-    min_beats: int,
-    max_beats: int,
-) -> str:
-    return (
-        template.replace("{min_beats}", str(min_beats)).replace(
-            "{max_beats}", str(max_beats)
-        )
-    )
-
-
-def validate_beat_count(
-    content: list[tuple[str, str]],
-    *,
-    min_beats: int,
-    max_beats: int,
-) -> None:
-    parse_scene_content(
-        [[character, text] for character, text in content],
-        min_beats=min_beats,
-        max_beats=max_beats,
-    )
 
 
 def parse_content_from_text(

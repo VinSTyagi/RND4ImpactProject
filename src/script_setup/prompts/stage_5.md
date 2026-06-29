@@ -26,11 +26,11 @@ Return a JSON array of {min_prompts} to {max_prompts} image-prompt objects (incl
 - "aspect_ratio": "16:9" (wide/action) | "9:16" (portrait) | "1:1" (close-up)
 - "cfg_scale": integer 5–12 (7 = default)
 - "reasoning": one short sentence on the key visual choice
-- "lines_used": **required.** A non-empty array of the exact [character, line] pairs from `scene_content` that this image prompt illustrates. Copy each pair verbatim (same character string and line string as in the input). Rules:
-  - Include every pair that directly motivates the frame (dialogue spoken, reaction shown, narration depicted, silence implied).
-  - One prompt may cite one or more pairs; a single pair may appear in multiple prompts only if each prompt shows a clearly different visual angle of that beat.
-  - Do not invent pairs; every entry must match an input pair exactly.
-  - Environment-only or prop-focused frames: cite the narration or silence pair(s) that describe what is visible.
+- "lines_used": **required.** A non-empty array of **integer indices** into `scene_content` (0-based), e.g. `[0, 3]`. Rules:
+  - Include every beat that directly motivates the frame (dialogue spoken, reaction shown, narration depicted, silence implied).
+  - One prompt may cite one or more indices; a single index may appear in multiple prompts only if each prompt shows a clearly different visual angle of that beat.
+  - Do not invent indices outside `scene_content`.
+  - Environment-only or prop-focused frames: cite the narration or silence index(es) that describe what is visible.
 
 Example (input scene_content abbreviated):
 "scene_content": [
@@ -50,11 +50,7 @@ Example output:
     "aspect_ratio": "16:9",
     "cfg_scale": 8,
     "reasoning": "Sidelight and muted tones sell the tense covert exchange.",
-    "lines_used": [
-      ["Lira", "These papers need to look worn."],
-      ["Guard", "Move along."],
-      ["Narration", "Dawn light cuts through fogged pharmacy windows."]
-    ]
+    "lines_used": [0, 2, 3]
   },
   {
     "positive_prompt": "close-up of woman's tense jaw, eyes downcast, rain-streaked window reflection, shallow depth of field, cold blue tones",
@@ -63,16 +59,14 @@ Example output:
     "aspect_ratio": "1:1",
     "cfg_scale": 7,
     "reasoning": "Inner-thought beat shown through tight facial detail.",
-    "lines_used": [
-      ["Lira", "(inner thought) He can't know."]
-    ]
+    "lines_used": [4]
   }
 ]
 
 Constraints:
 - Return **exactly {min_prompts}–{max_prompts} objects** (inclusive; array length must stay within this range)
-- Every object **must** include `"lines_used"` with at least one valid pair from `scene_content`
+- Every object **must** include `"lines_used"` with at least one valid `scene_content` index
 - CLIP truncates at 77 tokens — stay under 60; cut adjectives before submitting.
 - Show emotion visually (tension → rigid posture, clenched jaw).
 - Lead with the most important visual element.
-- Use scene_content to choose who is visible and what moment to illustrate; `lines_used` must document which pairs drove each prompt.
+- Use scene_content to choose who is visible and what moment to illustrate; `lines_used` must list the indices of those beats.

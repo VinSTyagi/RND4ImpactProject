@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 _DISABLED = frozenset({"", "null", "none", "off", "false"})
 
 
+def _resolve_dtype(dtype: str) -> str:
+    value = str(dtype).strip().lower()
+    if value in _DISABLED or value == "auto":
+        return "auto"
+    return str(dtype).strip()
+
+
 def load_vllm_engine(
     dtype,
     max_model_len: int,
@@ -37,7 +44,7 @@ def load_vllm_engine(
     args = {
         "model": model,
         "gpu_memory_utilization": gpu_memory_utilization,
-        "dtype": dtype,
+        "dtype": _resolve_dtype(dtype),
         "max_model_len": max_model_len,
         "enforce_eager": enforce_eager,
         "max_num_seqs": max_num_seqs,
@@ -49,8 +56,9 @@ def load_vllm_engine(
     if method not in _DISABLED:
         args["quantization"] = method
     logger.info(
-        "Loading vLLM model %s with quantization=%r (from YAML config)",
+        "Loading vLLM model %s with dtype=%r quantization=%r (from YAML config)",
         model,
+        args["dtype"],
         args.get("quantization"),
     )
     llm = LLM(**args)
@@ -121,7 +129,7 @@ def vllm_session(vcfg: VLLMModelConfig):
     is loaded once and shut down after the last stage completes.
     """
     model = load_vllm_engine(
-        dtype="auto",
+        dtype=vcfg.dtype,
         max_model_len=vcfg.max_model_len,
         model=vcfg.model_path,
         max_num_seqs=vcfg.max_num_seqs,

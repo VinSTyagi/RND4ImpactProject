@@ -1,7 +1,8 @@
 # ~12GB VRAM: Qwen3-4B-AWQ, moderate context.
 global_vllm_config:
   model_path: Qwen/Qwen3-4B-AWQ
-  quantization: awq_marlin
+  quantization: awq
+  dtype: auto
   max_tokens: 6144
   temperature: 0.6
   top_p: 0.95

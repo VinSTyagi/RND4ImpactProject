@@ -227,8 +227,9 @@ def main() -> None:
     vcfg = pipeline_config.global_vllm_config
     logger.info("Loaded config from %s", args.config)
     logger.info(
-        "vLLM settings: model=%s quantization=%r max_model_len=%s",
+        "vLLM settings: model=%s dtype=%r quantization=%r max_model_len=%s",
         vcfg.model_path,
+        vcfg.dtype,
         vcfg.quantization,
         vcfg.max_model_len,
     )

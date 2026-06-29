@@ -225,48 +225,46 @@ def normalize_reasoning(value: Any) -> str:
     return reasoning
 
 
-def coerce_lines_used(value: Any) -> list[list[str]]:
-    if not isinstance(value, list):
-        raise ValueError("lines_used must be a non-empty array")
-    if not value:
-        raise ValueError("lines_used must not be empty")
-    pairs: list[list[str]] = []
-    for index, item in enumerate(value):
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            character = str(item[0]).strip()
-            line = str(item[1])
-            if not character:
-                raise ValueError(
-                    f"lines_used[{index}]: character must be a non-empty string"
-                )
-            pairs.append([character, line])
-            continue
-        raise ValueError(
-            f"lines_used[{index}] must be a 2-element [character, line] array"
-        )
-    return pairs
-
-
-def normalize_lines_used(
+def coerce_line_indices(
     value: Any,
     *,
-    scene_content: list[tuple[str, str]] | None = None,
+    beat_count: int,
     allow_empty: bool = False,
-) -> list[list[str]]:
+) -> list[int]:
+    """Validate lines_used as scene_content indices (0-based)."""
     if value is None:
         if allow_empty:
             return []
         raise ValueError("lines_used must be a non-empty array")
-    pairs = coerce_lines_used(value)
-    if scene_content is not None:
-        scene_pairs = {(character, text) for character, text in scene_content}
-        for index, pair in enumerate(pairs):
-            key = (pair[0], pair[1])
-            if key not in scene_pairs:
-                raise ValueError(
-                    f"lines_used[{index}] {pair!r} does not match any scene_content pair"
-                )
-    return pairs
+    if not isinstance(value, list):
+        raise ValueError("lines_used must be a non-empty array")
+    if not value:
+        if allow_empty:
+            return []
+        raise ValueError("lines_used must not be empty")
+
+    indices: list[int] = []
+    for entry_index, item in enumerate(value):
+        if isinstance(item, dict) and "index" in item:
+            raw_index = item["index"]
+        elif isinstance(item, (list, tuple)) and len(item) == 1:
+            raw_index = item[0]
+        else:
+            raw_index = item
+
+        if isinstance(raw_index, bool) or not isinstance(raw_index, (int, float)):
+            raise ValueError(
+                f"lines_used[{entry_index}] must be an integer scene_content index"
+            )
+        index = int(raw_index)
+        if index < 0 or index >= beat_count:
+            upper = beat_count - 1
+            raise ValueError(
+                f"lines_used[{entry_index}]: scene_content index {index} "
+                f"out of range 0-{upper}"
+            )
+        indices.append(index)
+    return indices
 
 
 def normalize_image_prompt_fields(
@@ -277,7 +275,7 @@ def normalize_image_prompt_fields(
     aspect_ratio: Any,
     cfg_scale: Any,
     reasoning: Any,
-    lines_used: list[list[str]] | None = None,
+    lines_used: list[int] | None = None,
 ) -> dict[str, Any]:
     """Apply prompt constraints when reading ImagePrompt fields from script.json."""
     return {

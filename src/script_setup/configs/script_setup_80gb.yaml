@@ -2,6 +2,7 @@
 global_vllm_config:
   model_path: Qwen/Qwen3-32B-AWQ
   quantization: awq
+  dtype: auto
   max_tokens: 16384
   temperature: 0.3
   top_p: 0.95

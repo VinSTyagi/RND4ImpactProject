@@ -17,7 +17,7 @@ if "PIL" not in sys.modules:
 
 from utils.llm_helper import strip_reasoning
 from utils.schema import clamp_scene_content_beats, parse_scene_content
-from utils.stage_4 import parse_content_from_text, validate_beat_count
+from utils.stage_4 import parse_content_from_text
 
 
 _STAGE_4_EXAMPLE = """{
@@ -80,13 +80,21 @@ def test_parse_unescaped_interior_quotes() -> None:
 
 def test_validate_beat_count() -> None:
     content = [("Narration", "x")] * 20
-    validate_beat_count(content, min_beats=18, max_beats=40)
+    parse_scene_content(
+        [[character, text] for character, text in content],
+        min_beats=18,
+        max_beats=40,
+    )
     with pytest.raises(ValueError, match="expected 18-40"):
-        validate_beat_count(content[:10], min_beats=18, max_beats=40)
+        parse_scene_content(
+            [[character, text] for character, text in content[:10]],
+            min_beats=18,
+            max_beats=40,
+        )
 
 
 def test_missing_scene_content_field_raises() -> None:
-    with pytest.raises(ValueError, match="missing field: scene_content"):
+    with pytest.raises(ValueError, match="scene_content"):
         parse_content_from_text('{"dialogue": []}')
 
 

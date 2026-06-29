@@ -1,14 +1,18 @@
-# ~6GB VRAM: Phi-4-mini AWQ, short context, sequential batching.
+# ~6GB VRAM: Qwen2.5-3B Instruct (fp16/bf16), short context, sequential batching.
 global_vllm_config:
-  model_path: Sumo10/Phi-4-mini-instruct-AWQ-4bit
-  quantization: awq_marlin
+  model_path: Qwen/Qwen2.5-3B-Instruct
+  quantization: none
+  dtype: float16
   max_tokens: 4096
-  temperature: 0.25
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  min_p: 0
   max_model_len: 4096
   tensor_parallel_size: 1
-  gpu_memory_utilization: 0.80
+  gpu_memory_utilization: 0.90
   enforce_eager: false
-  enable_thinking: true
+  enable_thinking: false
   max_num_seqs: 1
   max_num_batched_tokens: 4096
 
