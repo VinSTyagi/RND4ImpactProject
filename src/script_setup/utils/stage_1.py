@@ -7,7 +7,8 @@ import time
 from prompts.prompt_reader import load_prompt_md
 from utils.batching import generate_prompts as run_llm_generations
 from utils.llm_helper import completion_text, parse_json_array, strip_reasoning
-from utils.schema import IdeaConfig, StoryIdea, resolve_path
+from utils.config import IdeaConfig
+from utils.schema import StoryIdea, resolve_path
 
 
 def run_stage(

@@ -11,7 +11,8 @@ from utils.llm_helper import (
     strip_markdown_fences,
     strip_reasoning,
 )
-from utils.schema import StoryIdea, TitleConfig, idea_prompt_payload, resolve_path
+from utils.config import TitleConfig
+from utils.schema import StoryIdea, idea_prompt_payload, resolve_path
 
 
 def run_stage(

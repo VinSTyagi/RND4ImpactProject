@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from utils import stage_1
-from utils.schema import VidSetupPipelineConfig, load_config
+from utils.config import VidSetupPipelineConfig, load_config
 
 _VID_SETUP_DIR = Path(__file__).resolve().parent
 _SRC_ROOT = _VID_SETUP_DIR.parent

@@ -13,8 +13,8 @@ from utils.llm_helper import (
     request_output_text,
     strip_reasoning,
 )
+from utils.config import ImagePromptConfig
 from utils.schema import (
-    ImagePromptConfig,
     SceneScript,
     StoryIdea,
     cast_visual_context,

@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from utils.schema import QuantizationConfig
+from utils.config import QuantizationConfig
 
 logger = logging.getLogger(__name__)
 

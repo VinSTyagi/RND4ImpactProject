@@ -23,7 +23,7 @@ from diffusers.utils import export_to_video
 from PIL import Image
 
 
-from utils.schema import (
+from utils.config import (
     GenerationConfig,
     QuantizationConfig,
     UpscaleConfig,

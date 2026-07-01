@@ -7,7 +7,8 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-from utils.schema import PipelineConfig, resolve_path
+from utils.config import PipelineConfig
+from utils.schema import resolve_path
 
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 

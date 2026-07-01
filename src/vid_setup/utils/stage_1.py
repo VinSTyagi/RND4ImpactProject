@@ -6,13 +6,12 @@ import time
 import torch
 from tqdm import tqdm
 
-from utils.schema import (
-    SceneScript,
+from utils.config import (
     VidSetupPipelineConfig,
     pipeline_needs_prompt,
     scene_paths_by_script,
-    validate_scripts_for_video,
 )
+from utils.schema import SceneScript, validate_scripts_for_video
 from utils.vid_diffuser_wrapper import generate_video_from_images, start_vid_diff_engine
 
 

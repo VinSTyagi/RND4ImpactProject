@@ -16,9 +16,9 @@ from utils.llm_helper import (
     strip_markdown_fences,
     strip_reasoning,
 )
+from utils.config import SceneContentConfig
 from utils.schema import (
     Scene,
-    SceneContentConfig,
     SceneScript,
     StoryIdea,
     parse_scene_content,

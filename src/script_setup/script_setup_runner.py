@@ -12,12 +12,8 @@ os.environ.setdefault("VLLM_USE_V1", "0")
 from pathlib import Path
 from typing import Callable
 
-from utils.schema import (
-    PipelineConfig,
-    SceneScript,
-    StoryIdea,
-    load_config,
-)
+from utils.config import PipelineConfig, load_config
+from utils.schema import SceneScript, StoryIdea
 
 _SCRIPT_SETUP_DIR = Path(__file__).resolve().parent
 _SRC_ROOT = _SCRIPT_SETUP_DIR.parent

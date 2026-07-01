@@ -27,8 +27,8 @@ def _load_setup_config(setup: str, config_rel: str) -> object:
         sys.path.insert(0, setup_dir_str)
         inserted = True
     try:
-        schema = importlib.import_module("utils.schema")
-        return schema.load_config(str(config_path))
+        config = importlib.import_module("utils.config")
+        return config.load_config(str(config_path))
     finally:
         if inserted:
             sys.path.remove(setup_dir_str)

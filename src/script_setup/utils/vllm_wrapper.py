@@ -14,7 +14,7 @@ from vllm import LLM, SamplingParams
 from vllm.distributed import destroy_distributed_environment, destroy_model_parallel
 
 if TYPE_CHECKING:
-    from utils.schema import VLLMModelConfig
+    from utils.config import VLLMModelConfig
 
 
 logger = logging.getLogger(__name__)

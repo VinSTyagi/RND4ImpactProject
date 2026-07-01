@@ -21,7 +21,7 @@ from PIL import Image
 from safetensors.torch import load_file
 
 from utils.diffusion_optimizations import apply_quantization_optimizations
-from utils.schema import (
+from utils.config import (
     format_negative_prompt,
     format_positive_prompt,
     parse_cfg_scale,
@@ -29,13 +29,13 @@ from utils.schema import (
 )
 
 if TYPE_CHECKING:
-    from utils.schema import (
+    from utils.config import (
         DiffusionPipelineConfig,
         GenerationConfig,
-        ImagePrompt,
         QuantizationConfig,
         RefinementConfig,
     )
+    from utils.schema import ImagePrompt
 
 logger = logging.getLogger(__name__)
 

@@ -5,16 +5,14 @@ from dataclasses import replace
 from typing import Iterator
 
 from utils import diffusion_wrapper
-from utils.schema import (
-    ImagePrompt,
+from utils.config import (
     ImageSetupPipelineConfig,
-    Scene,
-    SceneScript,
     refinement_active,
     scene_output_path,
     scene_raw_output_path,
     validate_pipeline_config,
 )
+from utils.schema import ImagePrompt, Scene, SceneScript
 
 _PIPELINE_LOADERS = {
     "sdxl": diffusion_wrapper.txt2img_session,

@@ -5,14 +5,14 @@ import logging
 from PIL import Image
 
 from utils import diffusion_wrapper
-from utils.schema import (
+from utils.config import (
     ImageSetupPipelineConfig,
-    SceneScript,
     refinement_active,
     scene_output_path,
     scene_raw_output_path,
     validate_pipeline_config,
 )
+from utils.schema import SceneScript
 from utils.stage_1 import iter_scene_prompts, validate_scripts
 
 

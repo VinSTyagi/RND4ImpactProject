@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Callable
 
 from utils import stage_1, stage_2
-from utils.schema import ImageSetupPipelineConfig, load_config, validate_pipeline_config
+from utils.config import (
+    ImageSetupPipelineConfig,
+    load_config,
+    refinement_active,
+    validate_pipeline_config,
+)
 
 _IMAGE_SETUP_DIR = Path(__file__).resolve().parent
 _SRC_ROOT = _IMAGE_SETUP_DIR.parent
@@ -48,8 +53,6 @@ def resolve_stages(
         return sorted(STAGES)
     selected = [n for n in STAGES if getattr(args, f"stage_{n}")]
     if not selected:
-        from utils.schema import refinement_active
-
         if refinement_active(pipeline_config):
             return sorted(STAGES)
         return [1]

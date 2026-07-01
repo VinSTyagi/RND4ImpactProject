@@ -10,7 +10,7 @@ if str(_IMAGE_SETUP) not in sys.path:
     sys.path.insert(0, str(_IMAGE_SETUP))
 
 from utils.diffusion_wrapper import resolve_refiner_denoising_start
-from utils.schema import RefinementConfig, refinement_active, load_config
+from utils.config import RefinementConfig, refinement_active, load_config
 
 
 def test_resolve_refiner_denoising_start_for_latent() -> None:

@@ -11,9 +11,9 @@ from utils.llm_helper import (
     request_output_text,
     strip_reasoning,
 )
+from utils.config import SceneOutlineConfig
 from utils.schema import (
     Scene,
-    SceneOutlineConfig,
     SceneScript,
     StoryIdea,
     resolve_path,
