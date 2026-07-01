@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 _SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
-_SETUPS = ("script_setup", "image_setup", "vid_setup")
+_SETUPS = ("script_setup", "image_setup", "vid_setup", "audio_setup")
 
 
 def _clear_setup_utils_modules() -> None:

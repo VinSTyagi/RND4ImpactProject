@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 
 import logging
+import os
 
 from audio_setup.utils.config import load_config
 from audio_setup.utils.schema import SceneScript, StoryIdea
@@ -14,6 +15,8 @@ from audio_setup.utils.tts_wrapper import (
     validate_scene_for_audio,
 )
 
+_DEFAULT_CONFIG = Path("configs/audio_setup_12gb.yaml")
+
 
 def load_args_parser() -> ArgumentParser:
     args_parser = ArgumentParser(
@@ -22,7 +25,7 @@ def load_args_parser() -> ArgumentParser:
     args_parser.add_argument(
         "--config",
         type=Path,
-        default="configs/audio_setup_qwen_tts.yaml",
+        default=_DEFAULT_CONFIG,
         help="Path to audio setup config",
     )
     return args_parser
@@ -38,6 +41,7 @@ def gen_logging() -> logging.Logger:
 
 
 if __name__ == "__main__":
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     logger = gen_logging()
     parser = load_args_parser()
     args = parser.parse_args()

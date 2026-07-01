@@ -12,14 +12,26 @@ from utils.config import TTSModelConfig, scene_audio_output_path
 from utils.schema import SceneScript, StoryIdea
 
 
+def _resolve_dtype(dtype: str):
+    if dtype == "float16":
+        return torch.float16
+    if dtype == "bfloat16":
+        return torch.bfloat16
+    if dtype in {"auto", "none"}:
+        return "auto"
+    return dtype
+
+
 @contextlib.contextmanager
 def launch_tts_engine(logger: logging.Logger, config: TTSModelConfig):
     logger.info("Launching TTS engine with config: %s", config)
     if config.model_family == "Qwen":
+        use_cuda = config.device == "cuda" and torch.cuda.is_available()
         model = Qwen3TTSModel.from_pretrained(
             config.model_name,
-            device_map="cuda:0" if torch.cuda.is_available() else "cpu",
-            dtype=config.dtype,
+            device_map="cuda:0" if use_cuda else "cpu",
+            dtype=_resolve_dtype(config.dtype),
+            low_cpu_mem_usage=True,
         )
     else:
         model = None
@@ -122,6 +134,8 @@ def generate_voice_scene(
                 "sr": sr,
             }
         )
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     return clips
 
 
