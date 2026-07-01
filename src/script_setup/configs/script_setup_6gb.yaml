@@ -1,10 +1,11 @@
-# ~6GB VRAM: Qwen2.5-3B Instruct (fp16/bf16), short context, sequential batching.
+# ~6GB VRAM: Qwen2.5-3B — use fewer scenes and lower temperature for JSON reliability.
+# For consistent stage 3+ JSON, prefer script_setup_12gb.yaml (Qwen3-4B-AWQ).
 global_vllm_config:
   model_path: Qwen/Qwen2.5-3B-Instruct
   quantization: none
   dtype: float16
-  max_tokens: 4096
-  temperature: 0.6
+  max_tokens: 3072
+  temperature: 0.35
   top_p: 0.95
   top_k: 20
   min_p: 0
@@ -29,14 +30,14 @@ title_config:
   batch_size: 1
 
 scene_config:
-  num_scenes: 5
+  num_scenes: 3
   prompt_path: script_setup/prompts/stage_3.md
   script_path: data/
   batch_size: 1
 
 scene_content_config:
-  min_beats: 8
-  max_beats: 15
+  min_beats: 6
+  max_beats: 10
   prompt_path: script_setup/prompts/stage_4.md
   script_path: data/
   batch_size: 1
