@@ -1,0 +1,30 @@
+[project]
+name = "rnd4impact-audio-setup"
+version = "0.1.0"
+description = "RND4Impact vLLM script pipeline (stages 1–4)"
+requires-python = ">=3.10,<3.13"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "torch==2.6.0",
+    "qwen-tts>=0.1.1",
+]
+
+[project.optional-dependencies]
+jupyter = [
+    "jupyterlab>=4.2",
+    "ipykernel>=6.29",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+constraint-dependencies = [
+    "torch==2.6.0",
+]

@@ -1,0 +1,19 @@
+tts_model_config:
+  model_name: "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
+  model_family: "Qwen"
+  dtype: "float16"
+  device: "cuda"
+  quantization: none
+  max_model_len: 2048
+  tensor_parallel_size: 1
+  gpu_memory_utilization: 0.80
+  enforce_eager: True
+  max_num_seqs: 1
+  max_num_batched_tokens: 8192
+
+io_config:
+  input_subdir: "data/"
+  output_subdir: "audio/"
+  audio_template: "scene_{scene_number:02d}_{line_index:02d}.wav"
+  save_raw: True
+  skip_existing: True
