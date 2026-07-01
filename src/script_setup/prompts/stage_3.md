@@ -15,7 +15,7 @@ The input object has exactly these fields:
 - "title": the title of the story
 
 -- OUTPUT FORMAT
-Return a flat JSON array of scene outline objects. Each object must have exactly these keys and associated values:
+Return a flat JSON array of scene outline **objects** with named keys (not positional arrays). Each object must have exactly these keys and associated values:
 
 - "scene_number": integer (0, 1, 2, ...; must match array index)
 - "scene_title": short evocative title (3-7 words)
@@ -46,7 +46,7 @@ Example:
 
 Constraints:
 
-- Array length must equal the scene count in the user message, keys AND values must be present in the objects
+- Array length must equal the scene count in the user message, each key/value in an object must be present only once
 - Distribute acts naturally: setup early, rising_action in the middle, climax near the end, then falling_action/resolution
 - Each scene must be visually distinct — change location, lighting, or focal action; avoid two scenes in the same room unless the situation transforms
 - Raise stakes progressively; the climax must force the lead character to confront their core flaw
@@ -54,4 +54,5 @@ Constraints:
 - Embed concrete, filmable details from the input (hook, setting, theme); avoid abstract filler
 - Write summaries dense enough that later stages can write dialogue and image prompts without guessing
 - No empty strings, null values, or extra keys
+- Use JSON objects with named fields; do not return positional arrays
 

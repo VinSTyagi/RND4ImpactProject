@@ -158,6 +158,27 @@ def _repair_interior_double_quotes(text: str) -> str:
     return "".join(result)
 
 
+def _repair_inline_object_keys(text: str) -> str:
+    """Fix ``"field": "value"`` pseudo-keys that models emit inside JSON arrays."""
+    repaired = text
+    for key in (
+        "ends_on",
+        "conflict",
+        "emotional_beat",
+        "character_change",
+        "summary",
+        "setting",
+        "scene_title",
+    ):
+        repaired = re.sub(
+            rf'"{key}"\s*:\s*("(?:\\.|[^"\\])*")',
+            r"\1",
+            repaired,
+            flags=re.IGNORECASE,
+        )
+    return repaired
+
+
 def _json_repair_candidates(text: str) -> list[str]:
     normalized = _normalize_json_quotes(text)
     seen: set[str] = set()
@@ -172,11 +193,12 @@ def _json_repair_candidates(text: str) -> list[str]:
     repaired_quotes = _repair_interior_double_quotes(normalized)
     repaired_quotes_escaped = _escape_control_chars_in_json_strings(repaired_quotes)
     for base in (normalized, escaped, repaired_quotes, repaired_quotes_escaped):
-        add(base)
-        add(_remove_trailing_commas(base))
-        with_commas = _insert_missing_commas_between_objects(base)
-        add(with_commas)
-        add(_remove_trailing_commas(with_commas))
+        for variant in (base, _repair_inline_object_keys(base)):
+            add(variant)
+            add(_remove_trailing_commas(variant))
+            with_commas = _insert_missing_commas_between_objects(variant)
+            add(with_commas)
+            add(_remove_trailing_commas(with_commas))
     return candidates
 
 

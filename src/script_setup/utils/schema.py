@@ -118,6 +118,100 @@ def normalize_act(value: Any) -> str:
     return act
 
 
+def _looks_like_act(value: Any) -> bool:
+    try:
+        normalize_act(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _clean_inline_field_key(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    for key in (
+        "ends_on",
+        "conflict",
+        "emotional_beat",
+        "character_change",
+        "summary",
+        "setting",
+        "scene_title",
+    ):
+        match = re.match(rf'^"?{key}"?\s*:\s*(.+)$', text, re.IGNORECASE | re.DOTALL)
+        if match:
+            cleaned = match.group(1).strip()
+            if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
+                cleaned = cleaned[1:-1].strip()
+            return cleaned
+    return value
+
+
+def coerce_scene_outline_row(row: list[Any] | tuple[Any, ...]) -> dict[str, Any]:
+    """Convert a positional scene outline row into a scene object dict."""
+    if len(row) < 5:
+        raise ValueError(f"scene row must have at least 5 fields, got {len(row)}")
+
+    values = [_clean_inline_field_key(value) for value in row]
+    index = 0
+    data: dict[str, Any] = {"scene_number": values[index]}
+    index += 1
+
+    if index < len(values) and not _looks_like_act(values[index]):
+        data["scene_title"] = values[index]
+        index += 1
+
+    data["act"] = values[index]
+    data["setting"] = values[index + 1]
+    data["characters"] = values[index + 2]
+    data["summary"] = values[index + 3]
+    tail = values[index + 4 :]
+
+    if len(tail) >= 4:
+        data["conflict"] = tail[0]
+        data["emotional_beat"] = tail[1]
+        data["character_change"] = tail[2]
+        data["ends_on"] = tail[3]
+    elif len(tail) == 3:
+        data["emotional_beat"] = tail[0]
+        data["character_change"] = tail[1]
+        data["ends_on"] = tail[2]
+    elif len(tail) == 2:
+        data["emotional_beat"] = tail[0]
+        data["ends_on"] = tail[1]
+    elif len(tail) == 1:
+        data["ends_on"] = tail[0]
+
+    return expand_sparse_scene_fields(data)
+
+
+def expand_sparse_scene_fields(data: dict[str, Any]) -> dict[str, Any]:
+    """Fill missing optional scene outline fields from summary text."""
+    expanded = dict(data)
+    summary = str(expanded.get("summary", "")).strip()
+    scene_number = expanded.get("scene_number", 0)
+
+    if not str(expanded.get("scene_title", "")).strip():
+        expanded["scene_title"] = f"Scene {scene_number}"
+    if not str(expanded.get("conflict", "")).strip():
+        expanded["conflict"] = (
+            summary.split(". ")[0].strip() + ("." if summary and not summary.endswith(".") else "")
+            if summary
+            else "Rising tension in the scene."
+        )
+    if not str(expanded.get("emotional_beat", "")).strip():
+        expanded["emotional_beat"] = "tense"
+    if not str(expanded.get("character_change", "")).strip():
+        expanded["character_change"] = "Stakes increase by scene end."
+    if not str(expanded.get("ends_on", "")).strip():
+        if summary and ". " in summary:
+            expanded["ends_on"] = summary.rsplit(". ", 1)[-1].strip()
+        else:
+            expanded["ends_on"] = summary or "The scene closes on a decisive beat."
+    return expanded
+
+
 def coerce_character_list(value: Any) -> list[str]:
     """Normalize scene character lists from LLM output."""
     if isinstance(value, str):
@@ -348,8 +442,12 @@ class SceneScript:
     @classmethod
     def parse_scene_dict(cls, data: Any) -> Scene:
         """Validate and normalize a scene outline dict from LLM output or JSON."""
-        if not isinstance(data, dict):
-            raise TypeError(f"expected dict, got {type(data).__name__}")
+        if isinstance(data, (list, tuple)):
+            data = coerce_scene_outline_row(data)
+        elif isinstance(data, dict):
+            data = expand_sparse_scene_fields(data)
+        else:
+            raise TypeError(f"expected dict or array, got {type(data).__name__}")
 
         missing = [name for name in _SCENE_FIELDS if name not in data]
         if missing:
@@ -654,7 +752,9 @@ __all__ = [
     "clamp_scene_content_beats",
     "coerce_character_descriptions",
     "coerce_character_list",
+    "coerce_scene_outline_row",
     "coerce_int_field",
+    "expand_sparse_scene_fields",
     "idea_json_path",
     "idea_prompt_payload",
     "iter_scene_dirs",
