@@ -135,25 +135,45 @@ def _format_prompt(
     )
 
 
+def _strip_wrapping_quotes(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        return text[1:-1].strip()
+    return text
+
+
+def _title_from_json_payload(payload: object) -> str | None:
+    if isinstance(payload, str):
+        return payload.strip() or None
+    if isinstance(payload, dict):
+        raw_title = payload.get("title")
+        if isinstance(raw_title, str):
+            return raw_title.strip() or None
+        raise ValueError(
+            "expected a JSON string title or object with a string 'title' field"
+        )
+    raise ValueError("expected a JSON string title")
+
+
 def parse_title_from_text(text: str) -> str:
     """Parse LLM text into a single non-empty title string."""
     cleaned = strip_markdown_fences(text.strip())
-    try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid JSON in model output: {exc}") from exc
+    if not cleaned:
+        raise ValueError("title must be non-empty")
 
-    if isinstance(payload, str):
-        title = payload.strip()
-    elif isinstance(payload, dict):
-        raw_title = payload.get("title")
-        if not isinstance(raw_title, str):
-            raise ValueError(
-                "expected a JSON string title or object with a string 'title' field"
-            )
-        title = raw_title.strip()
-    else:
-        raise ValueError("expected a JSON string title")
+    title: str | None = None
+    try:
+        title = _title_from_json_payload(json.loads(cleaned))
+    except json.JSONDecodeError:
+        title = None
+    except ValueError:
+        raise
+
+    if title is None:
+        first_line = cleaned.splitlines()[0].strip()
+        title = _strip_wrapping_quotes(first_line)
+        if title.lower().startswith("title:"):
+            title = title.split(":", 1)[1].strip()
 
     if not title:
         raise ValueError("title must be non-empty")
