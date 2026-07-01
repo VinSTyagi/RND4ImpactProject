@@ -57,7 +57,7 @@ def _idea_user_prompt(count: int) -> str:
     return (
         f"Generate exactly {count} distinct story {noun}. "
         "Each idea must be visually and narratively detailed in every field — "
-        "rich setting, filmable hook, named protagonist with visible traits, "
+        "rich setting, filmable hook, a full cast with TTS-ready voice profiles, "
         "and concrete stakes that later stages can expand into scenes and images. "
         "Use thinking/reasoning if helpful, then output ONLY a complete JSON array "
         "that starts with `[` and ends with `]`."

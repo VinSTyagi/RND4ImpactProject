@@ -4,11 +4,11 @@ Given a single story item JSON object (format below) and a scene count in the us
 
 -- INPUT FORMAT
 The input object has exactly these fields:
+
 - "genre": primary genre
 - "setting": time period and location (1 sentence)
 - "premise": core conflict and personal stakes (2-3 sentences)
-- "protagonist": name, background, core flaw, and motivation (1-2 sentences)
-- "antagonist": opposing force with a comprehensible motivation (1 sentence)
+- "characters": object mapping character names to descriptions; values include TTS vocal profile and story role
 - "hook": one specific, concrete detail that makes this story unique (1 sentence)
 - "tone": overall emotional tone (e.g. dark, hopeful, tense, bleak, whimsical)
 - "theme": the central human truth explored (1 sentence)
@@ -16,6 +16,7 @@ The input object has exactly these fields:
 
 -- OUTPUT FORMAT
 Return a flat JSON array of scene outline objects. Each object must have exactly these fields:
+
 - "scene_number": integer (0, 1, 2, ...; must match array index)
 - "scene_title": short evocative title (3-7 words)
 - "act": one of: setup, rising_action, climax, falling_action, resolution
@@ -26,8 +27,6 @@ Return a flat JSON array of scene outline objects. Each object must have exactly
 - "emotional_beat": reader/viewer emotion (2-4 words; be specific, not generic)
 - "character_change": internal shift by scene end (1-2 sentences)
 - "ends_on": closing beat — a visible image, gesture, line, or revelation (1-2 sentences; describe what the camera holds on)
-
-Do NOT include scene_content or image_prompt.
 
 Example:
 [
@@ -46,11 +45,13 @@ Example:
 ]
 
 Constraints:
+
 - Array length must equal the scene count in the user message
 - Distribute acts naturally: setup early, rising_action in the middle, climax near the end, then falling_action/resolution
 - Each scene must be visually distinct — change location, lighting, or focal action; avoid two scenes in the same room unless the situation transforms
-- Raise stakes progressively; the climax must force the protagonist to confront their core flaw
+- Raise stakes progressively; the climax must force the lead character to confront their core flaw
 - Do not repeat the same emotional_beat in consecutive scenes
 - Embed concrete, filmable details from the input (hook, setting, theme); avoid abstract filler
 - Write summaries dense enough that later stages can write dialogue and image prompts without guessing
 - No empty strings, null values, or extra keys
+

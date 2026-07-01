@@ -31,21 +31,41 @@ def resolve_path(rel: str) -> Path:
     return _SRC_ROOT / path
 
 
-_IDEA_FIELDS = (
+_IDEA_STRING_FIELDS = (
     "genre",
     "setting",
     "premise",
-    "protagonist",
-    "antagonist",
     "hook",
     "tone",
     "theme",
 )
 
 
-def idea_prompt_payload(story: StoryIdea) -> dict[str, str]:
+def coerce_character_descriptions(value: Any) -> dict[str, str]:
+    """Normalize story-bible character map from LLM output."""
+    if not isinstance(value, dict):
+        raise ValueError(
+            "characters must be a non-empty object mapping names to descriptions"
+        )
+    profiles: dict[str, str] = {}
+    for key, desc in value.items():
+        name = str(key).strip()
+        description = str(desc).strip()
+        if not name:
+            raise ValueError("characters keys must be non-empty names")
+        if not description:
+            raise ValueError(f"characters[{name!r}] description must be non-empty")
+        profiles[name] = description
+    if not profiles:
+        raise ValueError("characters must contain at least one entry")
+    return profiles
+
+
+def idea_prompt_payload(story: StoryIdea) -> dict[str, Any]:
     """Story fields only, for stage 2+ prompts."""
-    return {name: getattr(story, name) for name in _IDEA_FIELDS}
+    payload = {name: getattr(story, name) for name in _IDEA_STRING_FIELDS}
+    payload["characters"] = story.characters
+    return payload
 
 
 IMAGE_PROMPT_FIELDS = (
@@ -160,11 +180,8 @@ def scene_image_prompt_payload(
 
 
 def cast_visual_context(idea: StoryIdea) -> dict[str, str]:
-    """Story-bible visual anchors for stage 5 (describe cast without names)."""
-    return {
-        "protagonist_description": idea.protagonist,
-        "antagonist_description": idea.antagonist,
-    }
+    """Story-bible cast profiles for stage 5 image prompts."""
+    return dict(idea.characters)
 
 
 def story_dir(data_root: str, script_id: UUID | str) -> Path:
@@ -213,8 +230,7 @@ class StoryIdea:
     genre: str
     setting: str
     premise: str
-    protagonist: str
-    antagonist: str
+    characters: dict[str, str]
     hook: str
     tone: str
     theme: str
@@ -227,25 +243,29 @@ class StoryIdea:
         return self.title
 
     @classmethod
-    def _idea_fields_from_dict(cls, data: Any) -> dict[str, str]:
+    def _idea_fields_from_dict(cls, data: Any) -> dict[str, Any]:
         """Validate and normalize story-bible fields from LLM output or JSON."""
         if not isinstance(data, dict):
             raise TypeError(f"expected dict, got {type(data).__name__}")
         missing = [
             name
-            for name in _IDEA_FIELDS
+            for name in _IDEA_STRING_FIELDS
             if name not in data or not str(data[name]).strip()
         ]
+        if "characters" not in data:
+            missing.append("characters")
         if missing:
             raise ValueError(f"missing or empty fields: {', '.join(missing)}")
-        return {name: str(data[name]).strip() for name in _IDEA_FIELDS}
+        fields_out = {name: str(data[name]).strip() for name in _IDEA_STRING_FIELDS}
+        fields_out["characters"] = coerce_character_descriptions(data["characters"])
+        return fields_out
 
     @classmethod
     def from_idea_dict(cls, data: Any, *, model: str = "") -> StoryIdea:
         """Build a StoryIdea from LLM idea output (stage 1)."""
         return cls(**cls._idea_fields_from_dict(data), model=model)
 
-    def prompt_payload(self) -> dict[str, str]:
+    def prompt_payload(self) -> dict[str, Any]:
         """Story fields plus title, for stage 3 prompts."""
         if not self.title:
             raise ValueError(f"story {self.script_id} missing title")
@@ -254,7 +274,8 @@ class StoryIdea:
         return payload
 
     def to_json(self) -> dict[str, Any]:
-        out: dict[str, Any] = {name: getattr(self, name) for name in _IDEA_FIELDS}
+        out: dict[str, Any] = {name: getattr(self, name) for name in _IDEA_STRING_FIELDS}
+        out["characters"] = self.characters
         out["script_id"] = str(self.script_id)
         out["model"] = self.model
         if self.title:

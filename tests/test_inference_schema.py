@@ -115,8 +115,10 @@ def test_story_idea_round_trip_matches_schema() -> None:
             "genre": "thriller",
             "setting": "A coastal town in winter.",
             "premise": "A medic races against curfew.",
-            "protagonist": "Mara Voss, 30s, medic, stubborn.",
-            "antagonist": "The occupation forces.",
+            "characters": {
+                "Mara Voss": "Female, early 30s, alto with clipped urgency — breath short when lying, steadies when treating wounds. Field medic, stubborn, trades forged papers for medicine.",
+                "Enforcer Hale": "Male, 40s, low baritone, flat and unhurried — consonants land like stamps, no warmth in vowels. Occupation enforcer who catalogs faces in a ledger.",
+            },
             "hook": "Forged papers hidden in a hymn book.",
             "tone": "tense, cold, urgent",
             "theme": "Survival demands moral compromise.",
@@ -127,4 +129,6 @@ def test_story_idea_round_trip_matches_schema() -> None:
     payload = idea.to_json()
     reloaded = StoryIdea.from_dict(payload)
     assert reloaded.title == "Ash Ledger"
+    assert len(reloaded.characters) == 2
+    assert reloaded.characters["Mara Voss"].startswith("Female")
     assert json.loads(json.dumps(payload)) == payload

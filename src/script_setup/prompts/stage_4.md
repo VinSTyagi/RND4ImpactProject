@@ -4,12 +4,12 @@ Given a story item JSON object and a single scene outline, **expand** the outlin
 
 -- INPUT FORMAT
 The user message contains:
-- "story": genre, setting, premise, protagonist, antagonist, hook, tone, theme, title
+- "story": genre, setting, premise, characters, hook, tone, theme, title
 - "scene": scene_number, scene_title, act, setting, characters, summary, conflict, emotional_beat, character_change, ends_on
 
 -- YOUR TASK
 1. **Expand** the outline into a wide, self-contained scene — do not merely restate the summary in dialogue form.
-2. Use the **full story context** (premise, protagonist flaw, antagonist pressure, hook, theme) to inform subtext and stakes.
+2. Use the **full story context** (premise, character flaws and motivations, opposing pressure, hook, theme) to inform subtext and stakes.
 3. Write **complex dialogue**: distinct voices, subtext, evasion, interruption, power shifts, and lines that contradict what characters feel (show inner thought when useful).
 4. Structure the scene as a mini-arc:
    - **Opening**: orient the reader (Narration or action beat) — place, atmosphere, character entry
